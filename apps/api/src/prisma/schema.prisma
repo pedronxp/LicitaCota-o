@@ -123,6 +123,7 @@ model Pesquisa {
   uf                  String?
   fundamentacaoLegal  String?
   valorTotalEstimado  Decimal?       @db.Decimal(18, 2)
+  jobId               String?
   erroProcessamento   String?
   concluidaEm         DateTime?
   createdAt           DateTime       @default(now())

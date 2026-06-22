@@ -8,7 +8,7 @@ import { registrarAuditoria } from '../services/auditoria.service.js';
 import { lerPlanilha, lerListaColada } from '../services/planilha/leitura.service.js';
 import { gerarPlanilha } from '../services/planilha/geracao.service.js';
 import { salvarArquivo } from '../services/storage.service.js';
-import { enfileirarPesquisa } from '../services/queue/pesquisa.queue.js';
+import { enfileirarPesquisa, buscarJobPorId } from '../services/queue/pesquisa.queue.js';
 
 const router: Router = Router();
 const upload = multer({
@@ -235,16 +235,61 @@ router.post('/:id/processar', autenticar, async (req, res, next) => {
     if (pesquisa.status === 'PROCESSANDO') throw new ValidacaoError('Pesquisa já está sendo processada.');
     if (pesquisa._count.itens === 0) throw new ValidacaoError('A pesquisa não tem itens. Confirme a planilha primeiro.');
 
+    const jobId = await enfileirarPesquisa(req.params.id, req.usuario.id);
     await prisma.pesquisa.update({
       where: { id: req.params.id },
-      data: { status: 'PROCESSANDO', erroProcessamento: null },
+      data: { status: 'PROCESSANDO', erroProcessamento: null, jobId },
     });
-
-    const jobId = await enfileirarPesquisa(req.params.id, req.usuario.id);
     await registrarAuditoria({ userId: req.usuario.id, acao: 'PESQUISA_ENFILEIRADA', entidade: 'Pesquisa', entidadeId: req.params.id, detalhe: { jobId }, ip: req.ip });
 
     res.json({ ok: true, jobId });
   } catch (e) { next(e); }
+});
+
+// GET /api/pesquisas/:id/progresso — SSE com progresso em tempo real do job BullMQ
+router.get('/:id/progresso', autenticar, async (req, res) => {
+  const pesquisa = await prisma.pesquisa.findUnique({ where: { id: req.params.id } });
+  if (!pesquisa) { res.status(404).json({ erro: 'Pesquisa não encontrada.' }); return; }
+  try { checarAcesso(pesquisa.userId, req.usuario.id, req.usuario.role); }
+  catch { res.status(403).json({ erro: 'Acesso negado.' }); return; }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const enviar = (dados: unknown) => res.write(`data: ${JSON.stringify(dados)}\n\n`);
+
+  const verificar = async () => {
+    const p = await prisma.pesquisa.findUnique({ where: { id: req.params.id } });
+    if (!p) { res.end(); return; }
+
+    let jobProgress: unknown = null;
+    if (p.jobId) {
+      const job = await buscarJobPorId(p.jobId).catch(() => null);
+      if (job) jobProgress = job.progress ?? null;
+    }
+
+    enviar({
+      pesquisaId: p.id,
+      status: p.status,
+      totalItens: p.totalItens,
+      itensComCotacao: p.itensComCotacao,
+      itensSemCotacao: p.itensSemCotacao,
+      itensComErro: p.itensComErro,
+      resumoCobertura: p.resumoCobertura,
+      jobProgress,
+    });
+
+    if (p.status === 'CONCLUIDA' || p.status === 'ERRO') {
+      clearInterval(intervalo);
+      res.end();
+    }
+  };
+
+  await verificar();
+  const intervalo = setInterval(verificar, 2000);
+  req.on('close', () => clearInterval(intervalo));
 });
 
 // GET /api/pesquisas/:id/resultado/planilha — download da planilha de saída

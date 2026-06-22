@@ -34,6 +34,10 @@ export function getPesquisaQueue(): Queue {
   return _queue;
 }
 
+export async function buscarJobPorId(jobId: string) {
+  return getPesquisaQueue().getJob(jobId);
+}
+
 export async function enfileirarPesquisa(pesquisaId: string, autorId: string): Promise<string> {
   const job = await getPesquisaQueue().add(
     'processar',
