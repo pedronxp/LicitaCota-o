@@ -117,11 +117,14 @@ export interface FonteCotacao {
 export interface Fornecedor {
   id: string;
   razaoSocial: string;
+  nomeFantasia: string | null;
   cnpj: string;
   contatoNome: string | null;
   email: string | null;
   telefone: string | null;
   endereco: string | null;
+  municipio: string | null;
+  uf: string | null;
   ativo: boolean;
   createdAt: string;
 }

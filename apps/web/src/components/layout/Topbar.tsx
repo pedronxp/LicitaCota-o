@@ -126,7 +126,10 @@ export default function Topbar({ title }: { title?: string }) {
                   <p className="text-xs font-semibold text-zinc-900 dark:text-white truncate">{usuario?.nome}</p>
                   <p className="text-[11px] text-zinc-400 truncate">{usuario?.email}</p>
                 </div>
-                <button className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
+                <button
+                  onClick={() => { setUserOpen(false); router.push('/perfil'); }}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                >
                   <User className="w-4 h-4" /> Perfil
                 </button>
                 <button

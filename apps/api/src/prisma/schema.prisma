@@ -355,16 +355,19 @@ model ItemCatalogo {
 // ---------------------------------------------------------------------------
 
 model Fornecedor {
-  id          String   @id @default(uuid())
-  razaoSocial String
-  cnpj        String   @unique
-  contatoNome String?
-  email       String?
-  telefone    String?
-  endereco    String?
-  ativo       Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(uuid())
+  razaoSocial  String
+  nomeFantasia String?
+  cnpj         String   @unique
+  contatoNome  String?
+  email        String?
+  telefone     String?
+  endereco     String?
+  municipio    String?
+  uf           String?
+  ativo        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   cotacoesDiretas CotacaoDireta[]
 }

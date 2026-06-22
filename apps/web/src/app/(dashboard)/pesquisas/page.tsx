@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Plus, FileSearch } from 'lucide-react';
 import { usePesquisas } from '@/lib/queries';
@@ -18,9 +19,14 @@ const FILTROS: Array<{ label: string; value: StatusPesquisa | '' }> = [
 ];
 
 export default function PesquisasPage() {
+  const searchParams = useSearchParams();
   const [modalOpen, setModalOpen] = useState(false);
   const [filtro, setFiltro] = useState<StatusPesquisa | ''>('');
   const [pagina, setPagina] = useState(1);
+
+  useEffect(() => {
+    if (searchParams.get('nova') === '1') setModalOpen(true);
+  }, [searchParams]);
 
   const { data, isLoading } = usePesquisas(pagina, filtro || undefined);
 

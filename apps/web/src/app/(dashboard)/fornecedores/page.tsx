@@ -121,12 +121,15 @@ export default function FornecedoresPage() {
                 <Building2 className="w-5 h-5 text-blue-500" strokeWidth={1.5} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm text-zinc-900 dark:text-white">{f.razaoSocial}</p>
+                <p className="font-medium text-sm text-zinc-900 dark:text-white">{f.nomeFantasia || f.razaoSocial}</p>
+                {f.nomeFantasia && <p className="text-xs text-zinc-400 truncate">{f.razaoSocial}</p>}
                 <p className="text-xs text-zinc-300 dark:text-zinc-600 mt-0.5">{f.cnpj}</p>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0 text-right">
-                {f.contatoNome && (
-                  <span className="text-xs text-zinc-400 hidden sm:block">{f.contatoNome}</span>
+                {(f.municipio || f.uf) && (
+                  <span className="text-xs text-zinc-400 hidden sm:block">
+                    {[f.municipio, f.uf].filter(Boolean).join(' — ')}
+                  </span>
                 )}
                 <span className="text-xs text-zinc-300 dark:text-zinc-600 hidden md:block">{formatDate(f.createdAt)}</span>
                 {f.email && (

@@ -237,3 +237,31 @@ export function useAuditoria(pagina = 1, acao?: string) {
     },
   });
 }
+
+// ─── Perfil ──────────────────────────────────────────────────────────────────
+
+export function useMe() {
+  return useQuery({
+    queryKey: ['me'],
+    queryFn: () => apiFetch<Usuario>('/api/auth/me'),
+  });
+}
+
+export function useUpdateMe() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<Pick<Usuario, 'nome' | 'cargo' | 'setor' | 'municipio' | 'uf' | 'prefNotifEmail' | 'prefNotifInApp'>>) =>
+      apiFetch<Usuario>('/api/auth/me', { method: 'PUT', body: JSON.stringify(data) }),
+    onSuccess: (user) => {
+      qc.setQueryData(['me'], user);
+      qc.invalidateQueries({ queryKey: ['usuarios'] });
+    },
+  });
+}
+
+export function useAlterarSenha() {
+  return useMutation({
+    mutationFn: (data: { senhaAtual: string; novaSenha: string }) =>
+      apiFetch<{ ok: boolean }>('/api/auth/senha', { method: 'PUT', body: JSON.stringify(data) }),
+  });
+}

@@ -9,11 +9,14 @@ const router: Router = Router();
 
 const schemaFornecedor = z.object({
   razaoSocial: z.string().min(2),
+  nomeFantasia: z.string().optional(),
   cnpj: z.string().regex(/^\d{14}$/, 'CNPJ deve conter 14 dígitos sem formatação'),
   contatoNome: z.string().optional(),
   email: z.string().email().optional(),
   telefone: z.string().optional(),
   endereco: z.string().optional(),
+  municipio: z.string().optional(),
+  uf: z.string().length(2).optional(),
 });
 
 // GET /api/fornecedores
@@ -30,6 +33,7 @@ router.get('/', autenticar, async (req, res, next) => {
       ...(busca ? {
         OR: [
           { razaoSocial: { contains: busca, mode: 'insensitive' as const } },
+          { nomeFantasia: { contains: busca, mode: 'insensitive' as const } },
           { cnpj: { contains: busca } },
         ],
       } : {}),
