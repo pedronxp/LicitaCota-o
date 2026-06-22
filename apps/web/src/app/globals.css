@@ -45,7 +45,7 @@
 @layer components {
   .glass {
     @apply bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl
-           ring-1 ring-black/8 dark:ring-white/10;
+           ring-1 ring-black/[0.08] dark:ring-white/10;
   }
 
   .glass-strong {
