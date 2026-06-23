@@ -36,4 +36,4 @@ COPY --from=builder /app/apps/api/src/prisma/migrations ./apps/api/src/prisma/mi
 ENV NODE_ENV=production
 EXPOSE 3001
 
-CMD ["node", "apps/api/dist/server.js"]
+CMD ["sh", "-c", "node apps/api/node_modules/.bin/prisma migrate deploy --schema=apps/api/src/prisma/schema.prisma && node apps/api/dist/server.js"]
