@@ -132,9 +132,17 @@ export default function LoginPage() {
           </motion.form>
         </div>
 
-        <p className="text-center text-xs text-zinc-400 mt-6">
-          Problemas para acessar? Fale com o administrador do sistema.
-        </p>
+        <div className="text-center mt-6 space-y-2">
+          <p className="text-sm text-zinc-500">
+            Não tem conta?{' '}
+            <Link href="/cadastro" className="text-blue-500 hover:text-blue-700 font-medium transition-colors">
+              Criar conta
+            </Link>
+          </p>
+          <p className="text-xs text-zinc-400">
+            Problemas para acessar? Fale com o administrador do sistema.
+          </p>
+        </div>
       </motion.div>
     </main>
   );

@@ -11,8 +11,22 @@ import { AppError } from './utils/errors.js';
 
 const app: Express = express();
 
+const origensPermitidas = [
+  env.FRONTEND_URL,
+  'http://localhost:3000',
+  'http://localhost:3001',
+].filter(Boolean);
+
 app.use(cors({
-  origin: env.FRONTEND_URL,
+  origin: (origin, cb) => {
+    // Permite requisições sem origin (Postman, mobile, SSR server-side)
+    if (!origin) return cb(null, true);
+    // Permite qualquer subdomínio Vercel do projeto
+    if (origin.endsWith('.vercel.app') || origensPermitidas.includes(origin)) {
+      return cb(null, true);
+    }
+    cb(new Error(`CORS: origem não permitida — ${origin}`));
+  },
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));

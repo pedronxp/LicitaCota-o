@@ -32,6 +32,61 @@ const selectUsuarioPublico = {
   prefNotifEmail: true, prefNotifInApp: true,
 } as const;
 
+// POST /api/auth/cadastro — registro público de novo usuário
+router.post('/cadastro', async (req, res, next) => {
+  try {
+    const dados = z.object({
+      nome: z.string().min(2, 'Nome deve ter ao menos 2 caracteres'),
+      email: z.string().email('E-mail inválido'),
+      senha: z.string().min(8, 'Mínimo 8 caracteres'),
+      municipio: z.string().optional(),
+      uf: z.string().length(2).optional(),
+      cargo: z.string().optional(),
+    }).parse(req.body);
+
+    if (!senhaForte(dados.senha)) {
+      throw new ValidacaoError('A senha deve ter ao menos 8 caracteres, com letras e números.');
+    }
+
+    const existe = await prisma.user.findUnique({ where: { email: dados.email } });
+    if (existe) throw new ValidacaoError('Este e-mail já está cadastrado.');
+
+    const user = await prisma.user.create({
+      data: {
+        email: dados.email,
+        nome: dados.nome,
+        cargo: dados.cargo,
+        municipio: dados.municipio,
+        uf: dados.uf,
+        role: 'OPERADOR',
+        ativo: true,
+        passwordHash: await hashSenha(dados.senha),
+      },
+    });
+
+    await enviarEmail({
+      para: user.email,
+      assunto: 'Bem-vindo ao LicitaPreço!',
+      html: `
+        <div style="font-family:Inter,Arial,sans-serif;color:#1F3864;max-width:520px;">
+          <h2>Conta criada com sucesso!</h2>
+          <p>Olá, ${user.nome}.</p>
+          <p>Sua conta no LicitaPreço foi criada. Você já pode fazer login com o e-mail <strong>${user.email}</strong>.</p>
+          <p style="margin:24px 0;">
+            <a href="${env.FRONTEND_URL}/login" style="background:#2E75B6;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;">
+              Acessar o sistema
+            </a>
+          </p>
+          <hr style="border:none;border-top:1px solid #eee;margin:16px 0;"/>
+          <small style="color:#999;">LicitaPreço — Pesquisa de Preços para Licitações</small>
+        </div>`,
+    }).catch((e) => logger.warn('Falha ao enviar e-mail de boas-vindas', e));
+
+    await registrarAuditoria({ userId: user.id, acao: 'CADASTRO', ip: req.ip });
+    res.status(201).json({ ok: true, mensagem: 'Conta criada com sucesso. Faça login.' });
+  } catch (e) { next(e); }
+});
+
 // POST /api/auth/login
 router.post('/login', async (req, res, next) => {
   try {
