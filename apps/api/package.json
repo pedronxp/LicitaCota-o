@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "prisma migrate deploy --schema=src/prisma/schema.prisma && node dist/server.js",
+    "start": "prisma db push --schema=src/prisma/schema.prisma --skip-generate --accept-data-loss && node dist/server.js",
     "worker": "tsx src/services/queue/worker.runner.ts",
     "worker:dev": "tsx watch src/services/queue/worker.runner.ts",
     "lint": "eslint \"src/**/*.ts\"",
