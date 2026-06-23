@@ -42,7 +42,7 @@ export async function cotarItem(
   await prisma.cotacao.deleteMany({ where: { itemPesquisaId: itemId, editadaManualmente: false } });
 
   for (const fonte of fontes) {
-    const adapter = adapterPara(fonte.tipo);
+    const adapter = adapterPara(fonte.tipo, fonte.slug);
     try {
       const resultado = await adapter.consultar(itemNormalizado, fonte);
       await prisma.cotacao.create({

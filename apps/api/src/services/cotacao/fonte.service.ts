@@ -24,7 +24,7 @@ export async function testarFonte(
   if (!fonte) throw new NaoEncontradoError('Fonte não encontrada.');
 
   const amostra = await itemAmostra();
-  const adapter = adapterPara(fonte.tipo);
+  const adapter = adapterPara(fonte.tipo, fonte.slug);
   const resultado = await adapter.testar(fonte, amostra);
 
   const atualizada = await prisma.fonteCotacao.update({
@@ -102,7 +102,7 @@ export async function revalidarFontesAtivas(): Promise<
   const resultados: Array<{ id: string; nome: string; ok: boolean; mensagem: string }> = [];
 
   for (const fonte of ativas) {
-    const adapter = adapterPara(fonte.tipo);
+    const adapter = adapterPara(fonte.tipo, fonte.slug);
     const r = await adapter.testar(fonte, amostra);
     await prisma.fonteCotacao.update({
       where: { id: fonte.id },
