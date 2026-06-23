@@ -79,7 +79,7 @@ export const comprasGovAdapter: FonteAdapter = {
     }
   },
 
-  async testar(config: FonteCotacao, itemAmostra: string): Promise<TesteResultado> {
+  async testar(_config: FonteCotacao, itemAmostra: string): Promise<TesteResultado> {
     const inicio = Date.now();
     try {
       const codigos = await buscarCodigosCatmat(itemAmostra);
