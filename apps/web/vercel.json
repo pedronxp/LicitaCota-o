@@ -1,0 +1,6 @@
+{
+  "installCommand": "cd ../.. && pnpm install --no-frozen-lockfile",
+  "buildCommand": "pnpm --filter @licitapreco/web build",
+  "outputDirectory": ".next",
+  "framework": "nextjs"
+}
