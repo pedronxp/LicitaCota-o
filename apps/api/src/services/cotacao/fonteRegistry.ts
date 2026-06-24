@@ -3,17 +3,28 @@ import { prisma } from '../../config/prisma.js';
 import { apiRestAdapter } from './apiRest.adapter.js';
 import { comprasGovAdapter } from './comprasGov.adapter.js';
 import { pncpAdapter } from './pncp.adapter.js';
+import { pncpAtasAdapter } from './pncpAtas.adapter.js';
 import { scrapingAdapter } from './scraping.adapter.js';
 import { tabelaReferenciaAdapter } from './tabelaReferencia.adapter.js';
 import type { FonteAdapter } from './adapter.js';
 
 /**
- * Registry de adapters por slug (específico) ou tipo (genérico).
- * Adapters específicos têm prioridade sobre o genérico do tipo.
+ * Registry de adapters por slug.
+ * Todas as variantes PNCP por modalidade usam pncpAdapter —
+ * a modalidade é lida do campo parametrosTemplate.modalidade da fonte.
  */
 const ADAPTERS_POR_SLUG: Record<string, FonteAdapter> = {
   'compras-gov': comprasGovAdapter,
   'pncp': pncpAdapter,
+  'pncp-atas': pncpAtasAdapter,
+  'pncp-dispensa': pncpAdapter,
+  'pncp-concorrencia': pncpAdapter,
+  'pncp-leilao': pncpAdapter,
+  'pncp-pregao-internacional': pncpAdapter,
+  'pncp-tomada-precos': pncpAdapter,
+  'pncp-convite': pncpAdapter,
+  'pncp-dialogo-competitivo': pncpAdapter,
+  'pncp-credenciamento': pncpAdapter,
 };
 
 export function adapterPara(tipo: FonteCotacao['tipo'], slug?: string): FonteAdapter {
