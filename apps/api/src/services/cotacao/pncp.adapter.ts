@@ -37,8 +37,8 @@ function normalizar(texto: string): string {
 }
 
 async function buscarContratacoes(paginas = 2): Promise<Contratacao[]> {
-  const dataFinal = dataFormatada(0);
-  const dataInicial = dataFormatada(60);
+  const dataFinal = dataFormatada(1);
+  const dataInicial = dataFormatada(61);
   const todas: Contratacao[] = [];
   for (let p = 1; p <= paginas; p++) {
     const url =
@@ -131,8 +131,9 @@ export const pncpAdapter: FonteAdapter = {
     const inicio = Date.now();
     try {
       // Teste rápido: só verifica se a API responde com contratações recentes
-      const dataFinal = dataFormatada(0);
-      const dataInicial = dataFormatada(30);
+      // Usa ontem como dataFinal para evitar rejeição de datas futuras (server UTC vs BR)
+      const dataFinal = dataFormatada(1);
+      const dataInicial = dataFormatada(31);
       const url =
         `${BASE}/consulta/v1/contratacoes/publicacao` +
         `?dataInicial=${dataInicial}&dataFinal=${dataFinal}&codigoModalidadeContratacao=6&pagina=1&tamanhoPagina=5`;
