@@ -9,7 +9,8 @@ import { salvarArquivo } from '../storage.service.js';
 import { notificar } from '../notificacao.service.js';
 import { registrarAuditoria } from '../auditoria.service.js';
 import { progressStore } from './progressStore.js';
-import type { PesquisaJobData } from './pesquisa.queue.js';
+// PesquisaJobData definida localmente para evitar importação circular com pesquisa.queue.ts
+interface PesquisaJobData { pesquisaId: string; autorId: string; }
 
 interface ParametrosCalculo {
   metodoCalculo: 'MEDIA' | 'MEDIANA' | 'MENOR_PRECO';
