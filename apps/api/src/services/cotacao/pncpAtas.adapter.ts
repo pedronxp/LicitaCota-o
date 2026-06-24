@@ -38,22 +38,14 @@ function normalizar(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').trim();
 }
 
-async function buscarAtas(paginas = 2): Promise<Ata[]> {
-  const dataFinal = dataFormatada(1);
-  const dataInicial = dataFormatada(61);
-  const todas: Ata[] = [];
-  for (let p = 1; p <= paginas; p++) {
-    const url =
-      `${BASE}/consulta/v1/atas` +
-      `?dataInicial=${dataInicial}&dataFinal=${dataFinal}&pagina=${p}&tamanhoPagina=10`;
-    const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
-    if (!resp.ok) break;
-    const body = resp.corpoJson as { data?: Ata[] } | null;
-    const data = body?.data ?? [];
-    todas.push(...data);
-    if (data.length < 10) break;
-  }
-  return todas;
+async function buscarAtas(): Promise<Ata[]> {
+  const url =
+    `${BASE}/consulta/v1/atas` +
+    `?dataInicial=${dataFormatada(61)}&dataFinal=${dataFormatada(1)}&pagina=1&tamanhoPagina=20`;
+  const resp = await requisitar(url, { timeoutMs: 12000, retries: 1 });
+  if (!resp.ok) return [];
+  const body = resp.corpoJson as { data?: Ata[] } | null;
+  return body?.data ?? [];
 }
 
 async function buscarItensAta(cnpj: string, ano: number, seq: number, nata: number): Promise<AtaItem[]> {
@@ -78,31 +70,40 @@ async function buscarPrecos(
   termos: string[],
   limite: number,
 ): Promise<{ precos: number[]; referencia: string | null }> {
-  const atas = await buscarAtas(3);
+  const atas = await buscarAtas();
+  const candidatas = atas.slice(0, 12).filter(
+    (a) => a.orgaoEntidade?.cnpj && a.anoCompra && a.sequencialCompra && a.sequencialAta,
+  );
+
+  // Busca itens de todas as atas em paralelo
+  const loteItens = await Promise.all(
+    candidatas.map((ata) => {
+      const cnpj = ata.orgaoEntidade!.cnpj!;
+      const ano = ata.anoCompra!;
+      const seq = ata.sequencialCompra!;
+      const nata = ata.sequencialAta!;
+      return buscarItensAta(cnpj, ano, seq, nata).then((itens) =>
+        itens.map((i) => ({ ...i, _ref: `PNCP Ata — ${cnpj} ${ano}/${seq}/ata${nata}` })),
+      );
+    }),
+  );
+
   const precos: number[] = [];
   let referencia: string | null = null;
 
-  for (const ata of atas) {
-    if (precos.length >= limite) break;
-    const cnpj = ata.orgaoEntidade?.cnpj;
-    const ano = ata.anoCompra;
-    const seq = ata.sequencialCompra;
-    const nata = ata.sequencialAta;
-    if (!cnpj || !ano || !seq || !nata) continue;
-
-    const itens = await buscarItensAta(cnpj, ano, seq, nata);
-    for (const item of itens) {
+  for (const itens of loteItens) {
+    for (const item of itens as (AtaItem & { _ref: string })[]) {
       const desc = descricaoDeItem(item);
       if (!desc) continue;
       const descNorm = normalizar(desc);
-      const ok = termos.some((t) =>
+      const match = termos.some((t) =>
         normalizar(t).split(' ').filter((w) => w.length > 3).every((w) => descNorm.includes(w)),
       );
       const preco = precoDeItem(item);
-      if (ok && preco) {
+      if (match && preco) {
         precos.push(preco);
-        if (!referencia) referencia = `PNCP Ata — ${cnpj} ${ano}/${seq}/ata${nata}`;
-        if (precos.length >= limite) break;
+        if (!referencia) referencia = item._ref;
+        if (precos.length >= limite) return { precos, referencia };
       }
     }
   }

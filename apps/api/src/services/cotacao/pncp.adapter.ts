@@ -4,12 +4,6 @@ import { requisitar } from '../../utils/http.js';
 import { media } from './calculo.js';
 import type { FonteAdapter } from './adapter.js';
 
-/**
- * Adapter genérico PNCP — contratações por modalidade.
- * A modalidade é lida de parametrosTemplate.modalidade (padrão: 6 = Pregão).
- * Regra da API: tamanhoPagina >= 10 e codigoModalidadeContratacao obrigatório.
- */
-
 const BASE = 'https://pncp.gov.br/api';
 
 interface ContratacaoItem {
@@ -33,33 +27,23 @@ function normalizar(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').trim();
 }
 
-// Modalidades com maior volume de itens de material/serviço comum
-const MODALIDADES_PRINCIPAIS = [6, 8, 1]; // Pregão, Dispensa Eletrônica, Concorrência
+// Pregão e Dispensa têm maior volume — suficientes para referência de preço
+const MODALIDADES = [6, 8];
 
-async function buscarContratacoes(paginas = 2): Promise<Contratacao[]> {
-  const dataFinal = dataFormatada(1);
-  const dataInicial = dataFormatada(61);
-  const todas: Contratacao[] = [];
-  for (const modalidade of MODALIDADES_PRINCIPAIS) {
-    for (let p = 1; p <= paginas; p++) {
-      const url =
-        `${BASE}/consulta/v1/contratacoes/publicacao` +
-        `?dataInicial=${dataInicial}&dataFinal=${dataFinal}` +
-        `&codigoModalidadeContratacao=${modalidade}&pagina=${p}&tamanhoPagina=20`;
-      const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
-      if (!resp.ok) break;
-      const body = resp.corpoJson as { data?: Contratacao[] } | null;
-      const data = body?.data ?? [];
-      todas.push(...data);
-      if (data.length < 20) break;
-    }
-  }
-  return todas;
+async function buscarUmaModalidade(modalidade: number): Promise<Contratacao[]> {
+  const url =
+    `${BASE}/consulta/v1/contratacoes/publicacao` +
+    `?dataInicial=${dataFormatada(61)}&dataFinal=${dataFormatada(1)}` +
+    `&codigoModalidadeContratacao=${modalidade}&pagina=1&tamanhoPagina=20`;
+  const resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
+  if (!resp.ok) return [];
+  const body = resp.corpoJson as { data?: Contratacao[] } | null;
+  return body?.data ?? [];
 }
 
-async function buscarItensContratacao(cnpj: string, ano: number, seq: number): Promise<ContratacaoItem[]> {
+async function buscarItens(cnpj: string, ano: number, seq: number): Promise<ContratacaoItem[]> {
   const url = `${BASE}/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens?pagina=1&tamanhoPagina=20`;
-  const resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
+  const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
   if (!resp.ok) return [];
   const body = resp.corpoJson;
   if (Array.isArray(body)) return body as ContratacaoItem[];
@@ -70,29 +54,42 @@ async function buscarPrecos(
   termos: string[],
   limite: number,
 ): Promise<{ precos: number[]; referencia: string | null }> {
-  const contratacoes = await buscarContratacoes(3);
+  // Busca as duas modalidades em paralelo
+  const lotes = await Promise.all(MODALIDADES.map(buscarUmaModalidade));
+  const contratacoes = lotes.flat();
+
+  // Busca itens em paralelo, limitando a 15 contratações para não sobrecarregar
+  const candidatas = contratacoes.slice(0, 15);
+  const loteItens = await Promise.all(
+    candidatas.map((ct) => {
+      const cnpj = ct.orgaoEntidade?.cnpj;
+      const ano = ct.anoCompra;
+      const seq = ct.sequencialCompra;
+      if (!cnpj || !ano || !seq) return Promise.resolve([] as ContratacaoItem[]);
+      return buscarItens(cnpj, ano, seq).then((itens) =>
+        itens.map((i) => ({ ...i, _ref: `PNCP — ${cnpj} ${ano}/${seq}` })),
+      );
+    }),
+  );
+
   const precos: number[] = [];
   let referencia: string | null = null;
 
-  for (const ct of contratacoes) {
-    if (precos.length >= limite) break;
-    const { cnpj } = ct.orgaoEntidade ?? {};
-    const { anoCompra: ano, sequencialCompra: seq } = ct;
-    if (!cnpj || !ano || !seq) continue;
-    const itens = await buscarItensContratacao(cnpj, ano, seq);
-    for (const item of itens) {
+  for (const itens of loteItens) {
+    for (const item of itens as (ContratacaoItem & { _ref: string })[]) {
       if (!item.descricao || !item.valorUnitarioEstimado) continue;
       const descNorm = normalizar(item.descricao);
-      const ok = termos.some((t) =>
+      const match = termos.some((t) =>
         normalizar(t).split(' ').filter((w) => w.length > 3).every((w) => descNorm.includes(w)),
       );
-      if (ok && item.valorUnitarioEstimado > 0) {
+      if (match && item.valorUnitarioEstimado > 0) {
         precos.push(item.valorUnitarioEstimado);
-        if (!referencia) referencia = `PNCP — ${cnpj} ${ano}/${seq}`;
-        if (precos.length >= limite) break;
+        if (!referencia) referencia = item._ref;
+        if (precos.length >= limite) return { precos, referencia };
       }
     }
   }
+
   return { precos, referencia };
 }
 
@@ -123,14 +120,11 @@ export const pncpAdapter: FonteAdapter = {
   async testar(_config: FonteCotacao, _itemAmostra: string): Promise<TesteResultado> {
     const inicio = Date.now();
     try {
-      // Testa com modalidade 6 (Pregão) — maior volume, sempre tem dados recentes
-      const dataFinal = dataFormatada(1);
-      const dataInicial = dataFormatada(31);
       const url =
         `${BASE}/consulta/v1/contratacoes/publicacao` +
-        `?dataInicial=${dataInicial}&dataFinal=${dataFinal}` +
+        `?dataInicial=${dataFormatada(31)}&dataFinal=${dataFormatada(1)}` +
         `&codigoModalidadeContratacao=6&pagina=1&tamanhoPagina=10`;
-      const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
+      const resp = await requisitar(url, { timeoutMs: 12000, retries: 1 });
       const latenciaMs = Date.now() - inicio;
       if (!resp.ok) {
         return { ok: false, latenciaMs, amostraPreco: null, amostraReferencia: null, mensagem: `PNCP respondeu HTTP ${resp.status}.`, dadosBrutos: null };
@@ -140,8 +134,8 @@ export const pncpAdapter: FonteAdapter = {
       return {
         ok: count > 0, latenciaMs, amostraPreco: null, amostraReferencia: null,
         mensagem: count > 0
-          ? `PNCP acessível — ${count} contratações recentes (Pregão + Dispensa + Concorrência) em ${latenciaMs}ms.`
-          : 'PNCP sem contratações recentes no período consultado.',
+          ? `PNCP acessível — ${count} contratações recentes em ${latenciaMs}ms.`
+          : 'PNCP sem contratações recentes no período.',
         dadosBrutos: { contratacoes: count },
       };
     } catch (e) {
