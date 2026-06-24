@@ -127,42 +127,34 @@ export const pncpAdapter: FonteAdapter = {
     }
   },
 
-  async testar(_config: FonteCotacao, itemAmostra: string): Promise<TesteResultado> {
+  async testar(_config: FonteCotacao, _itemAmostra: string): Promise<TesteResultado> {
     const inicio = Date.now();
     try {
-      const { precos, referencia } = await buscarPrecosPorDescricao([itemAmostra], 3);
+      // Teste rápido: só verifica se a API responde com contratações recentes
+      const dataFinal = dataFormatada(0);
+      const dataInicial = dataFormatada(30);
+      const url =
+        `${BASE}/consulta/v1/contratacoes/publicacao` +
+        `?dataInicial=${dataInicial}&dataFinal=${dataFinal}&codigoModalidadeContratacao=6&pagina=1&tamanhoPagina=5`;
+      const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
       const latenciaMs = Date.now() - inicio;
-      if (precos.length === 0) {
-        // Testa ao menos se a API responde corretamente, mesmo sem match de descrição
-        const dataFinal = dataFormatada(0);
-        const dataInicial = dataFormatada(60);
-        const url = `${BASE}/consulta/v1/contratacoes/publicacao?dataInicial=${dataInicial}&dataFinal=${dataFinal}&codigoModalidadeContratacao=6&pagina=1&tamanhoPagina=5`;
-        const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
-        if (!resp.ok) {
-          return {
-            ok: false, latenciaMs: Date.now() - inicio,
-            amostraPreco: null, amostraReferencia: null,
-            mensagem: `PNCP respondeu HTTP ${resp.status}.`,
-            dadosBrutos: null,
-          };
-        }
-        const body = resp.corpoJson as { data?: unknown[] } | null;
-        const count = body?.data?.length ?? 0;
+      if (!resp.ok) {
         return {
-          ok: count > 0, latenciaMs: Date.now() - inicio,
+          ok: false, latenciaMs,
           amostraPreco: null, amostraReferencia: null,
-          mensagem: count > 0
-            ? `PNCP acessível (${count} contratações recentes). Nenhum item com "${itemAmostra}" nos últimos 60 dias.`
-            : 'PNCP sem contratações recentes no período consultado.',
-          dadosBrutos: { contratacoes: count },
+          mensagem: `PNCP respondeu HTTP ${resp.status}.`,
+          dadosBrutos: null,
         };
       }
+      const body = resp.corpoJson as { data?: unknown[] } | null;
+      const count = body?.data?.length ?? 0;
       return {
-        ok: true, latenciaMs,
-        amostraPreco: Math.round(media(precos) * 10000) / 10000,
-        amostraReferencia: referencia,
-        mensagem: `${precos.length} preço(s) encontrado(s) no PNCP em ${latenciaMs}ms.`,
-        dadosBrutos: { precos, fonte: 'pncp' },
+        ok: count > 0, latenciaMs,
+        amostraPreco: null, amostraReferencia: null,
+        mensagem: count > 0
+          ? `PNCP acessível — ${count} contratações recentes encontradas em ${latenciaMs}ms.`
+          : 'PNCP sem contratações recentes no período consultado.',
+        dadosBrutos: { contratacoes: count },
       };
     } catch (e) {
       return {
