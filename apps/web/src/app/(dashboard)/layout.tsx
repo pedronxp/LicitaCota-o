@@ -31,7 +31,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     const ping = () => fetch(apiUrl('/health')).catch(() => {});
     ping();
-    const id = setInterval(ping, 4 * 60 * 1000);
+    const id = setInterval(ping, 10 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
 

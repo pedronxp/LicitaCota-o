@@ -37,17 +37,18 @@ function parseRedisConnection(url: string) {
   }
 }
 
+type OnProgress = (p: Record<string, unknown>) => Promise<void>;
+
 export async function processarPesquisaDiretamente(pesquisaId: string, autorId: string): Promise<void> {
-  await processarPesquisa({ data: { pesquisaId, autorId }, updateProgress: async (p) => {
-    progressStore.set(pesquisaId, p as Record<string, unknown>);
-  }} as unknown as Job<PesquisaJobData>);
+  await processarPesquisa(pesquisaId, autorId, async (p) => {
+    progressStore.set(pesquisaId, p);
+  });
   progressStore.del(pesquisaId);
 }
 
-async function processarPesquisa(job: Job<PesquisaJobData>): Promise<void> {
-  const { pesquisaId, autorId } = job.data;
+async function processarPesquisa(pesquisaId: string, autorId: string, onProgress: OnProgress): Promise<void> {
   const inicio = Date.now();
-  logger.info('Processando pesquisa', { pesquisaId, jobId: job.id });
+  logger.info('Processando pesquisa', { pesquisaId });
 
   // Marca como PROCESSANDO.
   await prisma.pesquisa.update({
@@ -134,7 +135,7 @@ async function processarPesquisa(job: Job<PesquisaJobData>): Promise<void> {
           ? Math.round(((Date.now() - inicio) / processados) * (totalItens - processados) / 1000)
           : undefined,
     };
-    await job.updateProgress(progresso as unknown as Record<string, unknown>);
+    await onProgress(progresso);
   }
 
   for (const item of itens) {
@@ -235,7 +236,11 @@ async function tratarErro(job: Job<PesquisaJobData>, err: Error): Promise<void> 
 const worker = new Worker<PesquisaJobData>(
   'pesquisa',
   async (job) => {
-    await processarPesquisa(job);
+    await processarPesquisa(
+      job.data.pesquisaId,
+      job.data.autorId,
+      async (p) => { await job.updateProgress(p as Record<string, unknown>); },
+    );
   },
   {
     connection: parseRedisConnection(env.REDIS_URL),
