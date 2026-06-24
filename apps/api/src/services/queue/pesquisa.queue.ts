@@ -43,7 +43,7 @@ export async function enfileirarPesquisa(pesquisaId: string, autorId: string): P
     'processar',
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { pesquisaId, autorId } as any,
-    { attempts: 1, jobId: pesquisaId, timeout: 40 * 60 * 1000, removeOnComplete: 50, removeOnFail: 100 },
+    { attempts: 1, jobId: pesquisaId, removeOnComplete: 50, removeOnFail: 100 },
   );
   return job.id ?? '';
 }
