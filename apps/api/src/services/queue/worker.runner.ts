@@ -8,6 +8,7 @@ import { gerarPlanilha } from '../planilha/geracao.service.js';
 import { salvarArquivo } from '../storage.service.js';
 import { notificar } from '../notificacao.service.js';
 import { registrarAuditoria } from '../auditoria.service.js';
+import { progressStore } from './progressStore.js';
 import type { PesquisaJobData } from './pesquisa.queue.js';
 
 interface ParametrosCalculo {
@@ -33,6 +34,13 @@ function parseRedisConnection(url: string) {
     logger.warn('REDIS_URL inválida, usando localhost:6379');
     return { host: 'localhost', port: 6379, maxRetriesPerRequest: null as null, enableReadyCheck: false };
   }
+}
+
+export async function processarPesquisaDiretamente(pesquisaId: string, autorId: string): Promise<void> {
+  await processarPesquisa({ data: { pesquisaId, autorId }, updateProgress: async (p) => {
+    progressStore.set(pesquisaId, p as Record<string, unknown>);
+  }} as unknown as Job<PesquisaJobData>);
+  progressStore.del(pesquisaId);
 }
 
 async function processarPesquisa(job: Job<PesquisaJobData>): Promise<void> {

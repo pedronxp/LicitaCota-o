@@ -1,6 +1,7 @@
 import { Queue } from 'bullmq';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+import { processarPesquisaDiretamente } from './worker.runner.js';
 
 export interface PesquisaJobData {
   pesquisaId: string;
@@ -39,11 +40,23 @@ export async function buscarJobPorId(jobId: string) {
 }
 
 export async function enfileirarPesquisa(pesquisaId: string, autorId: string): Promise<string> {
-  const job = await getPesquisaQueue().add(
-    'processar',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { pesquisaId, autorId } as any,
-    { attempts: 1, jobId: pesquisaId, removeOnComplete: 50, removeOnFail: 100 },
-  );
-  return job.id ?? '';
+  try {
+    const job = await getPesquisaQueue().add(
+      'processar',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { pesquisaId, autorId } as any,
+      { attempts: 1, jobId: pesquisaId, removeOnComplete: 50, removeOnFail: 100 },
+    );
+    return job.id ?? '';
+  } catch (err) {
+    // Redis indisponível — processa diretamente em background (sem fila)
+    logger.warn('Redis indisponível, processando pesquisa diretamente.', { pesquisaId, erro: String(err) });
+    const jobId = `local-${pesquisaId}`;
+    setImmediate(() => {
+      processarPesquisaDiretamente(pesquisaId, autorId).catch((e: unknown) => {
+        logger.error('Erro no processamento direto', { pesquisaId, erro: String(e) });
+      });
+    });
+    return jobId;
+  }
 }

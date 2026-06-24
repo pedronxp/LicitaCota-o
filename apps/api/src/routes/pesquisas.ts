@@ -9,6 +9,7 @@ import { lerPlanilha, lerListaColada } from '../services/planilha/leitura.servic
 import { gerarPlanilha } from '../services/planilha/geracao.service.js';
 import { salvarArquivo } from '../services/storage.service.js';
 import { enfileirarPesquisa, buscarJobPorId } from '../services/queue/pesquisa.queue.js';
+import { progressStore } from '../services/queue/progressStore.js';
 
 const router: Router = Router();
 const upload = multer({
@@ -266,9 +267,12 @@ router.get('/:id/progresso', autenticar, async (req, res) => {
 
     let jp: Record<string, unknown> | null = null;
     if (p.jobId) {
+      // Tenta BullMQ primeiro; fallback para store em memória (modo sem Redis)
       const job = await buscarJobPorId(p.jobId).catch(() => null);
       if (job?.progress && typeof job.progress === 'object') {
         jp = job.progress as Record<string, unknown>;
+      } else {
+        jp = progressStore.get(req.params.id);
       }
     }
 
