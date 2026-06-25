@@ -71,12 +71,12 @@ async function buscarPrecos(
   limite: number,
 ): Promise<{ precos: number[]; referencia: string | null }> {
   const atas = await buscarAtas();
-  const candidatas = atas.slice(0, 12).filter(
+  const candidatas = atas.filter(
     (a) => a.orgaoEntidade?.cnpj && a.anoCompra && a.sequencialCompra && a.sequencialAta,
   );
 
-  // Busca itens de todas as atas em paralelo
-  const loteItens = await Promise.all(
+  // Busca itens de todas as atas em paralelo (sem limite artificial)
+  const resultadosItens = await Promise.allSettled(
     candidatas.map((ata) => {
       const cnpj = ata.orgaoEntidade!.cnpj!;
       const ano = ata.anoCompra!;
@@ -87,6 +87,10 @@ async function buscarPrecos(
       );
     }),
   );
+
+  const loteItens = resultadosItens
+    .filter((r) => r.status === 'fulfilled')
+    .map((r) => (r as PromiseFulfilledResult<unknown[]>).value);
 
   const precos: number[] = [];
   let referencia: string | null = null;

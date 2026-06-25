@@ -54,14 +54,17 @@ async function buscarPrecos(
   termos: string[],
   limite: number,
 ): Promise<{ precos: number[]; referencia: string | null }> {
-  // Busca 2 modalities × 3 páginas em paralelo → até 120 contratações
-  const lotes = await Promise.all(
+  // Busca 2 modalidades × 3 páginas em paralelo → até 120 contratações
+  const lotes = await Promise.allSettled(
     MODALIDADES.flatMap((m) => [1, 2, 3].map((p) => buscarUmaModalidade(m, p))),
   );
-  const contratacoes = lotes.flat();
-  const candidatas = contratacoes.slice(0, 40);
-  const loteItens = await Promise.all(
-    candidatas.map((ct) => {
+  const contratacoes = lotes
+    .filter((r): r is PromiseFulfilledResult<Contratacao[]> => r.status === 'fulfilled')
+    .flatMap((r) => r.value);
+
+  // Verifica todos os contratos obtidos (sem limite artificial de 40)
+  const resultadosItens = await Promise.allSettled(
+    contratacoes.map((ct) => {
       const cnpj = ct.orgaoEntidade?.cnpj;
       const ano = ct.anoCompra;
       const seq = ct.sequencialCompra;
@@ -71,6 +74,9 @@ async function buscarPrecos(
       );
     }),
   );
+  const loteItens = resultadosItens
+    .filter((r) => r.status === 'fulfilled')
+    .map((r) => (r as PromiseFulfilledResult<unknown[]>).value);
 
   const precos: number[] = [];
   let referencia: string | null = null;
