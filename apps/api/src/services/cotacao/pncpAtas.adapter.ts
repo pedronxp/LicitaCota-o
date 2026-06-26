@@ -5,13 +5,13 @@ import { media } from './calculo.js';
 import type { FonteAdapter } from './adapter.js';
 
 const BASE = 'https://pncp.gov.br/api';
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos — reutilizado por todos os itens da pesquisa
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
+// Campos reais retornados por /consulta/v1/atas
 interface Ata {
-  orgaoEntidade?: { cnpj?: string };
-  anoCompra?: number;
-  sequencialCompra?: number;
-  sequencialAta?: number;
+  cnpjOrgao?: string;
+  numeroControlePNCPAta?: string;
+  cancelado?: boolean;
 }
 
 interface AtaItem {
@@ -23,7 +23,6 @@ interface AtaItem {
 
 type AtaItemComRef = AtaItem & { _ref: string };
 
-// Cache em módulo: primeira chamada busca do PNCP, demais reutilizam
 let _cache: { itens: AtaItemComRef[]; expiresAt: number } | null = null;
 let _fetchPromise: Promise<AtaItemComRef[]> | null = null;
 
@@ -35,6 +34,20 @@ function dataFormatada(diasAtras: number): string {
 
 function normalizar(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').trim();
+}
+
+// Formato: {cnpj}-{modalidade}-{seq}/{ano}-{nata}
+// Ex: "18457226000181-1-000015/2023-000001"
+function parsearAta(ata: Ata): { cnpj: string; anoCompra: number; sequencialCompra: number; sequencialAta: number } | null {
+  if (!ata.cnpjOrgao || !ata.numeroControlePNCPAta || ata.cancelado) return null;
+  const match = ata.numeroControlePNCPAta.match(/-(\d+)\/(\d{4})-(\d+)$/);
+  if (!match) return null;
+  return {
+    cnpj: ata.cnpjOrgao,
+    sequencialCompra: parseInt(match[1], 10),
+    anoCompra: parseInt(match[2], 10),
+    sequencialAta: parseInt(match[3], 10),
+  };
 }
 
 async function buscarAtas(): Promise<Ata[]> {
@@ -57,21 +70,26 @@ async function buscarItensAta(cnpj: string, ano: number, seq: number, nata: numb
 }
 
 async function carregarTodosItens(): Promise<AtaItemComRef[]> {
-  const atas = await buscarAtas();
-  const candidatas = atas.filter(
-    (a) => a.orgaoEntidade?.cnpj && a.anoCompra && a.sequencialCompra && a.sequencialAta,
-  );
+  let atas: Ata[];
+  try {
+    atas = await buscarAtas();
+  } catch {
+    return [];
+  }
+
+  const candidatas = atas
+    .map(parsearAta)
+    .filter((a): a is NonNullable<ReturnType<typeof parsearAta>> => a !== null);
 
   const resultados = await Promise.allSettled(
-    candidatas.map((ata) => {
-      const cnpj = ata.orgaoEntidade!.cnpj!;
-      const ano = ata.anoCompra!;
-      const seq = ata.sequencialCompra!;
-      const nata = ata.sequencialAta!;
-      return buscarItensAta(cnpj, ano, seq, nata).then((itens) =>
-        itens.map((i) => ({ ...i, _ref: `PNCP Ata — ${cnpj} ${ano}/${seq}/ata${nata}` })),
-      );
-    }),
+    candidatas.map(({ cnpj, anoCompra, sequencialCompra, sequencialAta }) =>
+      buscarItensAta(cnpj, anoCompra, sequencialCompra, sequencialAta).then((itens) =>
+        itens.map((i) => ({
+          ...i,
+          _ref: `PNCP Ata — ${cnpj} ${anoCompra}/${sequencialCompra}/ata${sequencialAta}`,
+        })),
+      ),
+    ),
   );
 
   return resultados
@@ -163,15 +181,16 @@ export const pncpAtasAdapter: FonteAdapter = {
       if (!resp.ok) {
         return { ok: false, latenciaMs, amostraPreco: null, amostraReferencia: null, mensagem: `PNCP Atas respondeu HTTP ${resp.status}.`, dadosBrutos: null };
       }
-      const body = resp.corpoJson as { data?: unknown[]; totalRegistros?: number } | null;
+      const body = resp.corpoJson as { data?: Ata[]; totalRegistros?: number } | null;
       const count = body?.data?.length ?? 0;
       const total = body?.totalRegistros ?? 0;
+      const candidatas = (body?.data ?? []).map(parsearAta).filter(Boolean).length;
       return {
         ok: count > 0, latenciaMs, amostraPreco: null, amostraReferencia: null,
         mensagem: count > 0
-          ? `PNCP Atas — ${count} atas recentes (${total.toLocaleString('pt-BR')} total) em ${latenciaMs}ms.`
+          ? `PNCP Atas — ${count} atas (${candidatas} válidas, ${total.toLocaleString('pt-BR')} total) em ${latenciaMs}ms.`
           : 'PNCP Atas — nenhuma ata encontrada no período.',
-        dadosBrutos: { atas: count, totalRegistros: total },
+        dadosBrutos: { atas: count, candidatas, totalRegistros: total },
       };
     } catch (e) {
       return {
