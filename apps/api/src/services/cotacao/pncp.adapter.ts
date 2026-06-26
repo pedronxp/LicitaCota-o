@@ -5,6 +5,7 @@ import { media } from './calculo.js';
 import type { FonteAdapter } from './adapter.js';
 
 const BASE = 'https://pncp.gov.br/api';
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos — reutilizado por todos os itens da pesquisa
 
 interface ContratacaoItem {
   descricaoItem?: string;
@@ -19,6 +20,12 @@ interface Contratacao {
   sequencialCompra?: number;
 }
 
+type ItemComRef = ContratacaoItem & { _ref: string };
+
+// Cache em módulo: primeira chamada busca do PNCP, demais reutilizam
+let _cache: { itens: ItemComRef[]; expiresAt: number } | null = null;
+let _fetchPromise: Promise<ItemComRef[]> | null = null;
+
 function dataFormatada(diasAtras: number): string {
   const d = new Date();
   d.setDate(d.getDate() - diasAtras);
@@ -29,7 +36,6 @@ function normalizar(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').trim();
 }
 
-// Pregão e Dispensa têm maior volume — suficientes para referência de preço
 const MODALIDADES = [6, 8];
 
 async function buscarUmaModalidade(modalidade: number, pagina: number): Promise<Contratacao[]> {
@@ -43,7 +49,7 @@ async function buscarUmaModalidade(modalidade: number, pagina: number): Promise<
   return body?.data ?? [];
 }
 
-async function buscarItens(cnpj: string, ano: number, seq: number): Promise<ContratacaoItem[]> {
+async function buscarItensContrato(cnpj: string, ano: number, seq: number): Promise<ContratacaoItem[]> {
   const url = `${BASE}/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens?pagina=1&tamanhoPagina=50`;
   const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
   if (!resp.ok) return [];
@@ -52,11 +58,8 @@ async function buscarItens(cnpj: string, ano: number, seq: number): Promise<Cont
   return (body as { data?: ContratacaoItem[] })?.data ?? [];
 }
 
-async function buscarPrecos(
-  termos: string[],
-  limite: number,
-): Promise<{ precos: number[]; referencia: string | null }> {
-  // Busca 2 modalidades × 5 páginas em paralelo → até 500 contratações
+async function carregarTodosItens(): Promise<ItemComRef[]> {
+  // Busca 2 modalidades × 5 páginas → até 500 contratações
   const lotes = await Promise.allSettled(
     MODALIDADES.flatMap((m) => [1, 2, 3, 4, 5].map((p) => buscarUmaModalidade(m, p))),
   );
@@ -64,43 +67,68 @@ async function buscarPrecos(
     .filter((r): r is PromiseFulfilledResult<Contratacao[]> => r.status === 'fulfilled')
     .flatMap((r) => r.value);
 
-  // Verifica todos os contratos obtidos (sem limite artificial de 40)
-  const resultadosItens = await Promise.allSettled(
+  const resultados = await Promise.allSettled(
     contratacoes.map((ct) => {
       const cnpj = ct.orgaoEntidade?.cnpj;
       const ano = ct.anoCompra;
       const seq = ct.sequencialCompra;
-      if (!cnpj || !ano || !seq) return Promise.resolve([] as ContratacaoItem[]);
-      return buscarItens(cnpj, ano, seq).then((itens) =>
+      if (!cnpj || !ano || !seq) return Promise.resolve([] as ItemComRef[]);
+      return buscarItensContrato(cnpj, ano, seq).then((itens) =>
         itens.map((i) => ({ ...i, _ref: `PNCP — ${cnpj} ${ano}/${seq}` })),
       );
     }),
   );
-  const loteItens = resultadosItens
+
+  return resultados
     .filter((r) => r.status === 'fulfilled')
-    .map((r) => (r as PromiseFulfilledResult<unknown[]>).value);
+    .flatMap((r) => (r as PromiseFulfilledResult<ItemComRef[]>).value);
+}
+
+async function obterItensCache(): Promise<ItemComRef[]> {
+  const now = Date.now();
+  if (_cache && _cache.expiresAt > now) return _cache.itens;
+  if (_fetchPromise) return _fetchPromise;
+
+  _fetchPromise = carregarTodosItens()
+    .then((itens) => {
+      _cache = { itens, expiresAt: now + CACHE_TTL_MS };
+      _fetchPromise = null;
+      return itens;
+    })
+    .catch((err: unknown) => {
+      _fetchPromise = null;
+      throw err;
+    });
+
+  return _fetchPromise;
+}
+
+function matcherTermos(termos: string[], descNorm: string): boolean {
+  return termos.some((t) => {
+    const palavras = normalizar(t).split(' ').filter((w) => w.length > 3);
+    if (palavras.length === 0) return false;
+    const acertos = palavras.filter((w) => descNorm.includes(w)).length;
+    return acertos >= Math.max(1, Math.ceil(palavras.length * 0.6));
+  });
+}
+
+async function buscarPrecos(
+  termos: string[],
+  limite: number,
+): Promise<{ precos: number[]; referencia: string | null }> {
+  const todosItens = await obterItensCache();
 
   const precos: number[] = [];
   let referencia: string | null = null;
 
-  for (const itens of loteItens) {
-    for (const item of itens as (ContratacaoItem & { _ref: string })[]) {
-      const desc = item.descricaoItem ?? item.descricao ?? '';
-      const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
-      if (!desc || !preco) continue;
-      const descNorm = normalizar(desc);
-      const match = termos.some((t) => {
-        const palavras = normalizar(t).split(' ').filter((w) => w.length > 3);
-        if (palavras.length === 0) return false;
-        const acertos = palavras.filter((w) => descNorm.includes(w)).length;
-        // Aceita se ao menos 60% das palavras-chave batem (mínimo 1)
-        return acertos >= Math.max(1, Math.ceil(palavras.length * 0.6));
-      });
-      if (match && preco > 0) {
-        precos.push(preco);
-        if (!referencia) referencia = item._ref;
-        if (precos.length >= limite) return { precos, referencia };
-      }
+  for (const item of todosItens) {
+    const desc = item.descricaoItem ?? item.descricao ?? '';
+    const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
+    if (!desc || !preco || preco <= 0) continue;
+    if (matcherTermos(termos, normalizar(desc))) {
+      precos.push(preco);
+      if (!referencia) referencia = item._ref;
+      if (precos.length >= limite) break;
     }
   }
 

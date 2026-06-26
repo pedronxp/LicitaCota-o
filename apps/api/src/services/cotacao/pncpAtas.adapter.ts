@@ -4,13 +4,8 @@ import { requisitar } from '../../utils/http.js';
 import { media } from './calculo.js';
 import type { FonteAdapter } from './adapter.js';
 
-/**
- * Adapter para Atas de Registro de Preço do PNCP.
- * Atas fixam preços máximos durante vigência — melhor referência legal para ARP.
- * Endpoint: /api/consulta/v1/atas → itens via /api/pncp/v1/orgaos/{cnpj}/compras/{ano}/{seq}/atas/{nata}/itens
- */
-
 const BASE = 'https://pncp.gov.br/api';
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos — reutilizado por todos os itens da pesquisa
 
 interface Ata {
   orgaoEntidade?: { cnpj?: string };
@@ -24,9 +19,13 @@ interface AtaItem {
   descricao?: string;
   valorUnitario?: number;
   valorUnitarioEstimado?: number;
-  quantidade?: number;
-  unidadeMedida?: string;
 }
+
+type AtaItemComRef = AtaItem & { _ref: string };
+
+// Cache em módulo: primeira chamada busca do PNCP, demais reutilizam
+let _cache: { itens: AtaItemComRef[]; expiresAt: number } | null = null;
+let _fetchPromise: Promise<AtaItemComRef[]> | null = null;
 
 function dataFormatada(diasAtras: number): string {
   const d = new Date();
@@ -42,7 +41,7 @@ async function buscarAtas(): Promise<Ata[]> {
   const url =
     `${BASE}/consulta/v1/atas` +
     `?dataInicial=${dataFormatada(61)}&dataFinal=${dataFormatada(1)}&pagina=1&tamanhoPagina=500`;
-  const resp = await requisitar(url, { timeoutMs: 12000, retries: 1 });
+  const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
   if (!resp.ok) return [];
   const body = resp.corpoJson as { data?: Ata[] } | null;
   return body?.data ?? [];
@@ -57,26 +56,13 @@ async function buscarItensAta(cnpj: string, ano: number, seq: number, nata: numb
   return (body as { data?: AtaItem[] })?.data ?? [];
 }
 
-function precoDeItem(item: AtaItem): number | null {
-  const v = item.valorUnitario ?? item.valorUnitarioEstimado;
-  return typeof v === 'number' && v > 0 ? v : null;
-}
-
-function descricaoDeItem(item: AtaItem): string {
-  return item.descricaoItem ?? item.descricao ?? '';
-}
-
-async function buscarPrecos(
-  termos: string[],
-  limite: number,
-): Promise<{ precos: number[]; referencia: string | null }> {
+async function carregarTodosItens(): Promise<AtaItemComRef[]> {
   const atas = await buscarAtas();
   const candidatas = atas.filter(
     (a) => a.orgaoEntidade?.cnpj && a.anoCompra && a.sequencialCompra && a.sequencialAta,
   );
 
-  // Busca itens de todas as atas em paralelo (sem limite artificial)
-  const resultadosItens = await Promise.allSettled(
+  const resultados = await Promise.allSettled(
     candidatas.map((ata) => {
       const cnpj = ata.orgaoEntidade!.cnpj!;
       const ano = ata.anoCompra!;
@@ -88,32 +74,59 @@ async function buscarPrecos(
     }),
   );
 
-  const loteItens = resultadosItens
+  return resultados
     .filter((r) => r.status === 'fulfilled')
-    .map((r) => (r as PromiseFulfilledResult<unknown[]>).value);
+    .flatMap((r) => (r as PromiseFulfilledResult<AtaItemComRef[]>).value);
+}
+
+async function obterItensCache(): Promise<AtaItemComRef[]> {
+  const now = Date.now();
+  if (_cache && _cache.expiresAt > now) return _cache.itens;
+  if (_fetchPromise) return _fetchPromise;
+
+  _fetchPromise = carregarTodosItens()
+    .then((itens) => {
+      _cache = { itens, expiresAt: now + CACHE_TTL_MS };
+      _fetchPromise = null;
+      return itens;
+    })
+    .catch((err: unknown) => {
+      _fetchPromise = null;
+      throw err;
+    });
+
+  return _fetchPromise;
+}
+
+function matcherTermos(termos: string[], descNorm: string): boolean {
+  return termos.some((t) => {
+    const palavras = normalizar(t).split(' ').filter((w) => w.length > 3);
+    if (palavras.length === 0) return false;
+    const acertos = palavras.filter((w) => descNorm.includes(w)).length;
+    return acertos >= Math.max(1, Math.ceil(palavras.length * 0.6));
+  });
+}
+
+async function buscarPrecos(
+  termos: string[],
+  limite: number,
+): Promise<{ precos: number[]; referencia: string | null }> {
+  const todosItens = await obterItensCache();
 
   const precos: number[] = [];
   let referencia: string | null = null;
 
-  for (const itens of loteItens) {
-    for (const item of itens as (AtaItem & { _ref: string })[]) {
-      const desc = descricaoDeItem(item);
-      if (!desc) continue;
-      const descNorm = normalizar(desc);
-      const match = termos.some((t) => {
-        const palavras = normalizar(t).split(' ').filter((w) => w.length > 3);
-        if (palavras.length === 0) return false;
-        const acertos = palavras.filter((w) => descNorm.includes(w)).length;
-        return acertos >= Math.max(1, Math.ceil(palavras.length * 0.6));
-      });
-      const preco = precoDeItem(item);
-      if (match && preco) {
-        precos.push(preco);
-        if (!referencia) referencia = item._ref;
-        if (precos.length >= limite) return { precos, referencia };
-      }
+  for (const item of todosItens) {
+    const desc = item.descricaoItem ?? item.descricao ?? '';
+    const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
+    if (!desc || !preco || preco <= 0) continue;
+    if (matcherTermos(termos, normalizar(desc))) {
+      precos.push(preco);
+      if (!referencia) referencia = item._ref;
+      if (precos.length >= limite) break;
     }
   }
+
   return { precos, referencia };
 }
 
@@ -144,9 +157,7 @@ export const pncpAtasAdapter: FonteAdapter = {
   async testar(_config: FonteCotacao, _itemAmostra: string): Promise<TesteResultado> {
     const inicio = Date.now();
     try {
-      const dataFinal = dataFormatada(1);
-      const dataInicial = dataFormatada(31);
-      const url = `${BASE}/consulta/v1/atas?dataInicial=${dataInicial}&dataFinal=${dataFinal}&pagina=1&tamanhoPagina=10`;
+      const url = `${BASE}/consulta/v1/atas?dataInicial=${dataFormatada(31)}&dataFinal=${dataFormatada(1)}&pagina=1&tamanhoPagina=10`;
       const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
       const latenciaMs = Date.now() - inicio;
       if (!resp.ok) {
