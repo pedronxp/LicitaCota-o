@@ -7,8 +7,10 @@ import type { FonteAdapter } from './adapter.js';
 const BASE = 'https://pncp.gov.br/api';
 
 interface ContratacaoItem {
+  descricaoItem?: string;
   descricao?: string;
   valorUnitarioEstimado?: number;
+  valorUnitario?: number;
 }
 
 interface Contratacao {
@@ -34,7 +36,7 @@ async function buscarUmaModalidade(modalidade: number, pagina: number): Promise<
   const url =
     `${BASE}/consulta/v1/contratacoes/publicacao` +
     `?dataInicial=${dataFormatada(91)}&dataFinal=${dataFormatada(1)}` +
-    `&codigoModalidadeContratacao=${modalidade}&pagina=${pagina}&tamanhoPagina=20`;
+    `&codigoModalidadeContratacao=${modalidade}&pagina=${pagina}&tamanhoPagina=50`;
   const resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
   if (!resp.ok) return [];
   const body = resp.corpoJson as { data?: Contratacao[] } | null;
@@ -42,7 +44,7 @@ async function buscarUmaModalidade(modalidade: number, pagina: number): Promise<
 }
 
 async function buscarItens(cnpj: string, ano: number, seq: number): Promise<ContratacaoItem[]> {
-  const url = `${BASE}/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens?pagina=1&tamanhoPagina=20`;
+  const url = `${BASE}/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens?pagina=1&tamanhoPagina=50`;
   const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
   if (!resp.ok) return [];
   const body = resp.corpoJson;
@@ -54,9 +56,9 @@ async function buscarPrecos(
   termos: string[],
   limite: number,
 ): Promise<{ precos: number[]; referencia: string | null }> {
-  // Busca 2 modalidades × 3 páginas em paralelo → até 120 contratações
+  // Busca 2 modalidades × 5 páginas em paralelo → até 500 contratações
   const lotes = await Promise.allSettled(
-    MODALIDADES.flatMap((m) => [1, 2, 3].map((p) => buscarUmaModalidade(m, p))),
+    MODALIDADES.flatMap((m) => [1, 2, 3, 4, 5].map((p) => buscarUmaModalidade(m, p))),
   );
   const contratacoes = lotes
     .filter((r): r is PromiseFulfilledResult<Contratacao[]> => r.status === 'fulfilled')
@@ -83,8 +85,10 @@ async function buscarPrecos(
 
   for (const itens of loteItens) {
     for (const item of itens as (ContratacaoItem & { _ref: string })[]) {
-      if (!item.descricao || !item.valorUnitarioEstimado) continue;
-      const descNorm = normalizar(item.descricao);
+      const desc = item.descricaoItem ?? item.descricao ?? '';
+      const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
+      if (!desc || !preco) continue;
+      const descNorm = normalizar(desc);
       const match = termos.some((t) => {
         const palavras = normalizar(t).split(' ').filter((w) => w.length > 3);
         if (palavras.length === 0) return false;
@@ -92,8 +96,8 @@ async function buscarPrecos(
         // Aceita se ao menos 60% das palavras-chave batem (mínimo 1)
         return acertos >= Math.max(1, Math.ceil(palavras.length * 0.6));
       });
-      if (match && item.valorUnitarioEstimado > 0) {
-        precos.push(item.valorUnitarioEstimado);
+      if (match && preco > 0) {
+        precos.push(preco);
         if (!referencia) referencia = item._ref;
         if (precos.length >= limite) return { precos, referencia };
       }

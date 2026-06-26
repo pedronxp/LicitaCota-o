@@ -41,7 +41,7 @@ function normalizar(s: string): string {
 async function buscarAtas(): Promise<Ata[]> {
   const url =
     `${BASE}/consulta/v1/atas` +
-    `?dataInicial=${dataFormatada(61)}&dataFinal=${dataFormatada(1)}&pagina=1&tamanhoPagina=20`;
+    `?dataInicial=${dataFormatada(61)}&dataFinal=${dataFormatada(1)}&pagina=1&tamanhoPagina=500`;
   const resp = await requisitar(url, { timeoutMs: 12000, retries: 1 });
   if (!resp.ok) return [];
   const body = resp.corpoJson as { data?: Ata[] } | null;
@@ -49,7 +49,7 @@ async function buscarAtas(): Promise<Ata[]> {
 }
 
 async function buscarItensAta(cnpj: string, ano: number, seq: number, nata: number): Promise<AtaItem[]> {
-  const url = `${BASE}/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/atas/${nata}/itens?pagina=1&tamanhoPagina=20`;
+  const url = `${BASE}/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/atas/${nata}/itens?pagina=1&tamanhoPagina=50`;
   const resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
   if (!resp.ok) return [];
   const body = resp.corpoJson;
