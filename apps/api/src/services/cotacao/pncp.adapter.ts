@@ -197,14 +197,13 @@ export const pncpAdapter: FonteAdapter = {
       if (!resp.ok) {
         return { ok: false, latenciaMs, amostraPreco: null, amostraReferencia: null, mensagem: `PNCP respondeu HTTP ${resp.status}.`, dadosBrutos: null };
       }
-      const body = resp.corpoJson as { data?: unknown[] } | null;
+      const body = resp.corpoJson as { data?: unknown[]; totalRegistros?: number } | null;
       const count = body?.data?.length ?? 0;
+      const total = body?.totalRegistros ?? 0;
       return {
-        ok: count > 0, latenciaMs, amostraPreco: null, amostraReferencia: null,
-        mensagem: count > 0
-          ? `PNCP acessível — ${count} contratações recentes em ${latenciaMs}ms.`
-          : 'PNCP sem contratações recentes no período.',
-        dadosBrutos: { contratacoes: count },
+        ok: true, latenciaMs, amostraPreco: null, amostraReferencia: null,
+        mensagem: `PNCP acessível — ${count} contratações na página (${total} total) em ${latenciaMs}ms.`,
+        dadosBrutos: { contratacoes: count, totalRegistros: total },
       };
     } catch (e) {
       return {

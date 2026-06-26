@@ -54,7 +54,7 @@ function parsearAta(ata: Ata): { cnpj: string; anoCompra: number; sequencialComp
 async function buscarAtas(): Promise<Ata[]> {
   const url =
     `${BASE}/consulta/v1/atas` +
-    `?dataInicial=${dataFormatada(61)}&dataFinal=${dataFormatada(1)}&pagina=1&tamanhoPagina=500`;
+    `?dataInicial=${dataFormatada(61)}&dataFinal=${dataFormatada(1)}&pagina=1&tamanhoPagina=50`;
   const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
   if (!resp.ok) return [];
   const body = resp.corpoJson as { data?: Ata[] } | null;
@@ -196,10 +196,8 @@ export const pncpAtasAdapter: FonteAdapter = {
       const total = body?.totalRegistros ?? 0;
       const candidatas = (body?.data ?? []).map(parsearAta).filter(Boolean).length;
       return {
-        ok: count > 0, latenciaMs, amostraPreco: null, amostraReferencia: null,
-        mensagem: count > 0
-          ? `PNCP Atas — ${count} atas (${candidatas} válidas, ${total.toLocaleString('pt-BR')} total) em ${latenciaMs}ms.`
-          : 'PNCP Atas — nenhuma ata encontrada no período.',
+        ok: true, latenciaMs, amostraPreco: null, amostraReferencia: null,
+        mensagem: `PNCP Atas acessível — ${count} atas (${candidatas} válidas, ${total.toLocaleString('pt-BR')} total) em ${latenciaMs}ms.`,
         dadosBrutos: { atas: count, candidatas, totalRegistros: total },
       };
     } catch (e) {
@@ -210,3 +208,12 @@ export const pncpAtasAdapter: FonteAdapter = {
     }
   },
 };
+
+/** Expõe status do cache para diagnóstico. */
+export function pncpAtasCacheStatus(): { itens: number; expiresAt: number | null; carregando: boolean } {
+  return {
+    itens: _cache?.itens.length ?? 0,
+    expiresAt: _cache?.expiresAt ?? null,
+    carregando: _fetchPromise !== null,
+  };
+}
