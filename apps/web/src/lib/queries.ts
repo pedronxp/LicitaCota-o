@@ -65,6 +65,14 @@ export function useProcessarPesquisa(id: string) {
   });
 }
 
+export function useReprocessarPesquisa(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<{ ok: boolean; jobId: string }>(`/api/pesquisas/${id}/reprocessar`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pesquisa', id] }),
+  });
+}
+
 export function useUpdateItem(pesquisaId: string) {
   const qc = useQueryClient();
   return useMutation({

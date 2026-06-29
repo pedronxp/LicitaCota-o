@@ -2,8 +2,9 @@
 import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Download, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
-import { usePesquisa } from '@/lib/queries';
+import { ArrowLeft, Download, CheckCircle2, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
+import { usePesquisa, useReprocessarPesquisa } from '@/lib/queries';
 import { getAccessToken, apiUrl } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { PesquisaBadge } from '@/components/common/StatusBadge';
@@ -13,6 +14,17 @@ export default function ResultadoPage({ params }: { params: Promise<{ id: string
   const { id } = use(params);
   const router = useRouter();
   const { data: pesquisa, isLoading } = usePesquisa(id);
+  const reprocessar = useReprocessarPesquisa(id);
+
+  async function handleReprocessar() {
+    try {
+      await reprocessar.mutateAsync();
+      toast.success('Reprocessando pesquisa...');
+      router.push(`/pesquisas/${id}/processar`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao reprocessar');
+    }
+  }
 
   function handleDownload() {
     const token = getAccessToken();
@@ -68,9 +80,14 @@ export default function ResultadoPage({ params }: { params: Promise<{ id: string
             <h3 className="font-semibold text-zinc-900 dark:text-white">Banco de Preços gerado</h3>
             <p className="text-sm text-zinc-500 mt-0.5">Planilha .xlsx com metodologia formal (Lei 14.133/2021)</p>
           </div>
-          <button onClick={handleDownload} className="btn-primary gap-2 flex-shrink-0">
-            <Download className="w-4 h-4" /> Baixar planilha
-          </button>
+          <div className="flex gap-2 flex-shrink-0">
+            <button onClick={handleReprocessar} disabled={reprocessar.isPending} className="btn-secondary gap-2">
+              <RefreshCw className="w-4 h-4" /> Reprocessar
+            </button>
+            <button onClick={handleDownload} className="btn-primary gap-2">
+              <Download className="w-4 h-4" /> Baixar planilha
+            </button>
+          </div>
         </div>
       </motion.div>
 

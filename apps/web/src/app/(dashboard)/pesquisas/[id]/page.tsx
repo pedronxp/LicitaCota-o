@@ -2,9 +2,9 @@
 import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Upload, Play, Download, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Upload, Play, Download, Pencil, ChevronDown, ChevronUp, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { usePesquisa, useProcessarPesquisa } from '@/lib/queries';
+import { usePesquisa, useProcessarPesquisa, useReprocessarPesquisa, useDeletePesquisa } from '@/lib/queries';
 import { apiFetch, apiUrl } from '@/lib/api';
 import { getAccessToken } from '@/lib/api';
 import { PesquisaBadge, ItemBadge } from '@/components/common/StatusBadge';
@@ -20,6 +20,8 @@ export default function PesquisaPage({ params }: { params: Promise<{ id: string 
   const router = useRouter();
   const { data: pesquisa, isLoading, refetch } = usePesquisa(id);
   const processar = useProcessarPesquisa(id);
+  const reprocessar = useReprocessarPesquisa(id);
+  const deletar = useDeletePesquisa();
   const [tab, setTab] = useState<Tab>('visao-geral');
   const [preview, setPreview] = useState<ResultadoLeitura | null>(null);
   const [confirmandoItens, setConfirmandoItens] = useState(false);
@@ -47,6 +49,27 @@ export default function PesquisaPage({ params }: { params: Promise<{ id: string 
       toast.error(e instanceof Error ? e.message : 'Erro ao confirmar itens');
     } finally {
       setConfirmandoItens(false);
+    }
+  }
+
+  async function handleReprocessar() {
+    try {
+      await reprocessar.mutateAsync();
+      toast.success('Reprocessando pesquisa...');
+      router.push(`/pesquisas/${id}/processar`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao reprocessar');
+    }
+  }
+
+  async function handleExcluir() {
+    if (!confirm('Excluir esta pesquisa? Essa ação não pode ser desfeita.')) return;
+    try {
+      await deletar.mutateAsync(id);
+      toast.success('Pesquisa excluída.');
+      router.push('/pesquisas');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao excluir');
     }
   }
 
@@ -88,6 +111,7 @@ export default function PesquisaPage({ params }: { params: Promise<{ id: string 
 
   const canUpload = pesquisa.status === 'AGUARDANDO' || pesquisa.status === 'ERRO';
   const canProcess = pesquisa.status === 'AGUARDANDO' && (pesquisa.totalItens ?? 0) > 0;
+  const canReprocess = (pesquisa.status === 'CONCLUIDA' || pesquisa.status === 'ERRO') && (pesquisa.totalItens ?? 0) > 0;
   const isProcessing = pesquisa.status === 'PROCESSANDO';
   const isDone = pesquisa.status === 'CONCLUIDA';
 
@@ -124,6 +148,14 @@ export default function PesquisaPage({ params }: { params: Promise<{ id: string 
               <Play className="w-4 h-4" /> Processar
             </button>
           )}
+          {canReprocess && (
+            <button onClick={handleReprocessar} disabled={reprocessar.isPending} className="btn-secondary gap-2">
+              <RefreshCw className="w-4 h-4" /> Reprocessar
+            </button>
+          )}
+          <button onClick={handleExcluir} disabled={deletar.isPending} className="btn-ghost gap-2 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

@@ -201,7 +201,7 @@ export default function ProgressoSSE({ pesquisaId }: Props) {
 
           <div className="flex justify-between text-xs text-zinc-400">
             <span>{total - processados} restantes</span>
-            {restante !== undefined && restante > 0 ? (
+            {restante != null && restante > 0 ? (
               <span>≈ {formatarTempo(restante)} restante · conclui ~{formatarETA(restante)}</span>
             ) : processados > 0 ? (
               <span>calculando…</span>

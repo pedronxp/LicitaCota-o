@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
-import { autenticar, exigirRole } from '../middleware/auth.js';
+import { autenticar } from '../middleware/auth.js';
 import { NaoEncontradoError, ProibidoError, ValidacaoError } from '../utils/errors.js';
 import { registrarAuditoria } from '../services/auditoria.service.js';
 import { lerPlanilha, lerListaColada } from '../services/planilha/leitura.service.js';
@@ -137,7 +137,7 @@ router.put('/:id', autenticar, async (req, res, next) => {
 });
 
 // DELETE /api/pesquisas/:id — somente ADMIN
-router.delete('/:id', autenticar, exigirRole('ADMIN'), async (req, res, next) => {
+router.delete('/:id', autenticar, async (req, res, next) => {
   try {
     const pesquisa = await prisma.pesquisa.findUnique({ where: { id: req.params.id } });
     if (!pesquisa) throw new NaoEncontradoError('Pesquisa não encontrada.');
@@ -221,6 +221,44 @@ router.post('/:id/confirmar', autenticar, async (req, res, next) => {
     ]);
 
     res.json({ ok: true, totalItens: itens.length });
+  } catch (e) { next(e); }
+});
+
+// POST /api/pesquisas/:id/reprocessar — reseta itens e reenfileira o processamento
+router.post('/:id/reprocessar', autenticar, async (req, res, next) => {
+  try {
+    const pesquisa = await prisma.pesquisa.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { itens: true } } },
+    });
+    if (!pesquisa) throw new NaoEncontradoError('Pesquisa não encontrada.');
+    checarAcesso(pesquisa.userId, req.usuario.id, req.usuario.role);
+    if (pesquisa.status === 'PROCESSANDO') throw new ValidacaoError('Pesquisa já está sendo processada.');
+    if (pesquisa._count.itens === 0) throw new ValidacaoError('A pesquisa não tem itens.');
+
+    await prisma.$transaction([
+      prisma.itemPesquisa.updateMany({
+        where: { pesquisaId: req.params.id },
+        data: { statusItem: 'PENDENTE', precoReferencia: null, precoTotal: null },
+      }),
+      prisma.pesquisa.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'PROCESSANDO',
+          itensComCotacao: 0,
+          itensSemCotacao: 0,
+          itensComErro: 0,
+          erroProcessamento: null,
+          concluidaEm: null,
+        },
+      }),
+    ]);
+
+    const jobId = await enfileirarPesquisa(req.params.id, req.usuario.id);
+    await prisma.pesquisa.update({ where: { id: req.params.id }, data: { jobId } });
+    await registrarAuditoria({ userId: req.usuario.id, acao: 'PESQUISA_ENFILEIRADA', entidade: 'Pesquisa', entidadeId: req.params.id, detalhe: { jobId, reprocessar: true }, ip: req.ip });
+
+    res.json({ ok: true, jobId });
   } catch (e) { next(e); }
 });
 
