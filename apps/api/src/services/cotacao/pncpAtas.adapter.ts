@@ -53,39 +53,21 @@ function parsearAta(ata: Ata): { cnpj: string; anoCompra: number; sequencialComp
   };
 }
 
-async function buscarAtasFiltradas(termo: string, diasAtras = 1095): Promise<Ata[]> {
+async function buscarAtas(diasAtras = 1095): Promise<Ata[]> {
   const hoje = new Date();
   const ini = new Date(hoje);
   ini.setDate(hoje.getDate() - diasAtras); // Atas têm vigência longa — busca 3 anos
 
-  const resultado: Ata[] = [];
-
-  for (let pagina = 1; pagina <= 3; pagina++) {
-    if (resultado.length >= 8) break;
-    const url = `${BASE}/consulta/v1/atas?dataInicial=${fmt(ini)}&dataFinal=${fmt(hoje)}&pagina=${pagina}&tamanhoPagina=500`;
-    let resp;
-    try {
-      resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
-    } catch {
-      break;
-    }
-    if (!resp.ok) break;
-
+  // Sem pré-filtro por objetoContratacao — a correspondência ocorre nos itens.
+  const url = `${BASE}/consulta/v1/atas?dataInicial=${fmt(ini)}&dataFinal=${fmt(hoje)}&pagina=1&tamanhoPagina=50`;
+  try {
+    const resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
+    if (!resp.ok) return [];
     const body = resp.corpoJson as { data?: Ata[] } | null;
-    const atas = body?.data ?? [];
-
-    for (const ata of atas) {
-      if (ata.cancelado) continue;
-      const objNorm = normalizar(ata.objetoContratacao ?? '');
-      if (matcherTermos([termo], objNorm)) {
-        resultado.push(ata);
-        if (resultado.length >= 8) break;
-      }
-    }
+    return (body?.data ?? []).filter((a) => !a.cancelado);
+  } catch {
+    return [];
   }
-
-  logger.info(`PNCP Atas filtradas para "${termo}": ${resultado.length}`);
-  return resultado;
 }
 
 async function buscarItensAta(cnpj: string, ano: number, seq: number, nata: number): Promise<AtaItem[]> {
@@ -109,37 +91,36 @@ async function buscarPrecos(
   const precos: number[] = [];
   let referencia: string | null = null;
 
-  for (const termo of termos) {
+  // Busca atas recentes sem pré-filtro por título. Correspondência nos itens.
+  let atas: Ata[];
+  try {
+    atas = await buscarAtas();
+  } catch (e) {
+    logger.warn('PNCP Atas: falha ao buscar atas', { e });
+    return { precos, referencia };
+  }
+
+  const candidatas = atas
+    .map(parsearAta)
+    .filter((a): a is NonNullable<ReturnType<typeof parsearAta>> => a !== null)
+    .slice(0, 15);
+
+  logger.info(`PNCP Atas: ${candidatas.length} atas carregadas para varredura`);
+
+  for (const { cnpj, anoCompra, sequencialCompra, sequencialAta } of candidatas) {
     if (precos.length >= limite) break;
+    const ref = `PNCP Ata — ${cnpj} ${anoCompra}/${sequencialCompra}/ata${sequencialAta}`;
 
-    let atas: Ata[];
-    try {
-      atas = await buscarAtasFiltradas(termo);
-    } catch (e) {
-      logger.warn('PNCP Atas: falha ao buscar atas', { termo, e });
-      continue;
-    }
+    const itens = await buscarItensAta(cnpj, anoCompra, sequencialCompra, sequencialAta);
 
-    const candidatas = atas
-      .map(parsearAta)
-      .filter((a): a is NonNullable<ReturnType<typeof parsearAta>> => a !== null)
-      .slice(0, 5);
-
-    for (const { cnpj, anoCompra, sequencialCompra, sequencialAta } of candidatas) {
+    for (const item of itens) {
       if (precos.length >= limite) break;
-      const ref = `PNCP Ata — ${cnpj} ${anoCompra}/${sequencialCompra}/ata${sequencialAta}`;
-
-      const itens = await buscarItensAta(cnpj, anoCompra, sequencialCompra, sequencialAta);
-
-      for (const item of itens) {
-        if (precos.length >= limite) break;
-        const desc = item.descricao ?? item.descricaoItem ?? '';
-        const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
-        if (!desc || !preco || preco <= 0) continue;
-        if (matcherTermos([termo], normalizar(desc))) {
-          precos.push(preco);
-          if (!referencia) referencia = ref;
-        }
+      const desc = item.descricao ?? item.descricaoItem ?? '';
+      const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
+      if (!desc || !preco || preco <= 0) continue;
+      if (matcherTermos(termos, normalizar(desc))) {
+        precos.push(preco);
+        if (!referencia) referencia = ref;
       }
     }
   }

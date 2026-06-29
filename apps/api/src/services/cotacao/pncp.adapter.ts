@@ -40,43 +40,22 @@ function fmt(d: Date): string {
   return d.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
-async function buscarContratacoesFiltradas(termo: string, diasAtras = 365): Promise<Contratacao[]> {
+async function buscarContratos(diasAtras = 180): Promise<Contratacao[]> {
   const hoje = new Date();
   const ini = new Date(hoje);
   ini.setDate(hoje.getDate() - diasAtras);
 
-  const resultado: Contratacao[] = [];
-
-  // Modalidades relevantes para bens/serviços: Pregão (6) e Dispensa (8)
-  for (const modalidade of [6, 8]) {
-    if (resultado.length >= 8) break;
-    for (let pagina = 1; pagina <= 2; pagina++) {
-      if (resultado.length >= 8) break;
-      const url = `${BASE_CONSULTA}/v1/contratacoes/publicacao?dataInicial=${fmt(ini)}&dataFinal=${fmt(hoje)}&codigoModalidadeContratacao=${modalidade}&pagina=${pagina}&tamanhoPagina=500`;
-      let resp;
-      try {
-        resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
-      } catch {
-        break;
-      }
-      if (!resp.ok) break;
-
-      const body = resp.corpoJson as { data?: Contratacao[] } | null;
-      const contratos = body?.data ?? [];
-
-      for (const ct of contratos) {
-        if (!ct.orgaoEntidade?.cnpj || !ct.anoCompra || !ct.sequencialCompra) continue;
-        const objNorm = normalizar(ct.objetoCompra ?? '');
-        if (matcherTermos([termo], objNorm)) {
-          resultado.push(ct);
-          if (resultado.length >= 8) break;
-        }
-      }
-    }
+  // Busca os contratos mais recentes (Pregão = modalidade 6) sem pré-filtro por objetoCompra.
+  // A correspondência real acontece no nível dos itens do contrato.
+  const url = `${BASE_CONSULTA}/v1/contratacoes/publicacao?dataInicial=${fmt(ini)}&dataFinal=${fmt(hoje)}&codigoModalidadeContratacao=6&pagina=1&tamanhoPagina=50`;
+  try {
+    const resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
+    if (!resp.ok) return [];
+    const body = resp.corpoJson as { data?: Contratacao[] } | null;
+    return (body?.data ?? []).filter((c) => c.orgaoEntidade?.cnpj && c.anoCompra && c.sequencialCompra);
+  } catch {
+    return [];
   }
-
-  logger.info(`PNCP contratos filtrados para "${termo}": ${resultado.length}`);
-  return resultado;
 }
 
 async function buscarItensContrato(cnpj: string, ano: number, seq: number): Promise<ContratacaoItem[]> {
@@ -100,35 +79,29 @@ async function buscarPrecos(
   const precos: number[] = [];
   let referencia: string | null = null;
 
-  for (const termo of termos) {
+  // Busca uma única página de contratos recentes (sem pré-filtro por título).
+  // A correspondência é feita nos itens de cada contrato.
+  const contratos = await buscarContratos();
+  logger.info(`PNCP: ${contratos.length} contratos carregados para varredura`);
+
+  for (const ct of contratos.slice(0, 15)) {
     if (precos.length >= limite) break;
+    const cnpj = ct.orgaoEntidade!.cnpj!;
+    const ano = ct.anoCompra!;
+    const seq = ct.sequencialCompra!;
+    const ref = `PNCP — ${cnpj} ${ano}/${seq}`;
 
-    let contratacoes: Contratacao[];
-    try {
-      contratacoes = await buscarContratacoesFiltradas(termo);
-    } catch (e) {
-      logger.warn('PNCP: falha ao buscar contratos', { termo, e });
-      continue;
-    }
+    const itens = await buscarItensContrato(cnpj, ano, seq);
 
-    for (const ct of contratacoes) {
+    for (const item of itens) {
       if (precos.length >= limite) break;
-      const cnpj = ct.orgaoEntidade!.cnpj!;
-      const ano = ct.anoCompra!;
-      const seq = ct.sequencialCompra!;
-      const ref = `PNCP — ${cnpj} ${ano}/${seq}`;
-
-      const itens = await buscarItensContrato(cnpj, ano, seq);
-
-      for (const item of itens) {
-        if (precos.length >= limite) break;
-        const desc = item.descricao ?? item.descricaoItem ?? '';
-        const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
-        if (!desc || !preco || preco <= 0) continue;
-        if (matcherTermos([termo], normalizar(desc))) {
-          precos.push(preco);
-          if (!referencia) referencia = ref;
-        }
+      const desc = item.descricao ?? item.descricaoItem ?? '';
+      const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
+      if (!desc || !preco || preco <= 0) continue;
+      const descNorm = normalizar(desc);
+      if (matcherTermos(termos, descNorm)) {
+        precos.push(preco);
+        if (!referencia) referencia = ref;
       }
     }
   }
