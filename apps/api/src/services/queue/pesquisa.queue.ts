@@ -11,14 +11,17 @@ export interface PesquisaJobData {
 function parseRedisConnection(url: string) {
   try {
     const u = new URL(url);
+    const isTls = u.protocol === 'rediss:';
     return {
       host: u.hostname || 'localhost',
       port: Number(u.port) || 6379,
       password: u.password || undefined,
+      username: u.username || undefined,
       db: Number(u.pathname.slice(1)) || 0,
       maxRetriesPerRequest: null as null,
       enableReadyCheck: false,
       lazyConnect: true,
+      ...(isTls ? { tls: {} } : {}),
     };
   } catch {
     logger.warn('REDIS_URL inválida, usando localhost:6379');
