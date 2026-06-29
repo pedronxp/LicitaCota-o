@@ -6,18 +6,21 @@ import { media } from './calculo.js';
 import type { FonteAdapter } from './adapter.js';
 
 const BASE = 'https://pncp.gov.br/api';
+const BASE_CONSULTA = `${BASE}/consulta`;
+const BASE_PNCP = `${BASE}/pncp`;
 
 interface ContratacaoItem {
-  descricaoItem?: string;
   descricao?: string;
+  descricaoItem?: string;
   valorUnitarioEstimado?: number;
   valorUnitario?: number;
 }
 
-interface ContratacaoBusca {
+interface Contratacao {
   orgaoEntidade?: { cnpj?: string };
   anoCompra?: number;
   sequencialCompra?: number;
+  objetoCompra?: string;
 }
 
 function normalizar(s: string): string {
@@ -26,32 +29,67 @@ function normalizar(s: string): string {
 
 function matcherTermos(termos: string[], descNorm: string): boolean {
   return termos.some((t) => {
-    const palavras = normalizar(t).split(' ').filter((w) => w.length > 2);
+    const palavras = normalizar(t).split(/\s+/).filter((w) => w.length > 2);
     if (palavras.length === 0) return false;
     const acertos = palavras.filter((w) => descNorm.includes(w)).length;
     return acertos >= Math.max(1, Math.ceil(palavras.length * 0.5));
   });
 }
 
-async function buscarContratacoesPorTexto(termo: string): Promise<ContratacaoBusca[]> {
-  const url = `${BASE}/pncp/v1/contratacoes/publicacoes?q=${encodeURIComponent(termo)}&pagina=1&tamanhoPagina=10`;
-  const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
-  if (!resp.ok) {
-    logger.warn(`PNCP busca textual HTTP ${resp.status}`, { termo });
-    return [];
+function fmt(d: Date): string {
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+async function buscarContratacoesFiltradas(termo: string, diasAtras = 365): Promise<Contratacao[]> {
+  const hoje = new Date();
+  const ini = new Date(hoje);
+  ini.setDate(hoje.getDate() - diasAtras);
+
+  const resultado: Contratacao[] = [];
+
+  // Modalidades relevantes para bens/serviços: Pregão (6) e Dispensa (8)
+  for (const modalidade of [6, 8]) {
+    if (resultado.length >= 8) break;
+    for (let pagina = 1; pagina <= 2; pagina++) {
+      if (resultado.length >= 8) break;
+      const url = `${BASE_CONSULTA}/v1/contratacoes/publicacao?dataInicial=${fmt(ini)}&dataFinal=${fmt(hoje)}&codigoModalidadeContratacao=${modalidade}&pagina=${pagina}&tamanhoPagina=500`;
+      let resp;
+      try {
+        resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
+      } catch {
+        break;
+      }
+      if (!resp.ok) break;
+
+      const body = resp.corpoJson as { data?: Contratacao[] } | null;
+      const contratos = body?.data ?? [];
+
+      for (const ct of contratos) {
+        if (!ct.orgaoEntidade?.cnpj || !ct.anoCompra || !ct.sequencialCompra) continue;
+        const objNorm = normalizar(ct.objetoCompra ?? '');
+        if (matcherTermos([termo], objNorm)) {
+          resultado.push(ct);
+          if (resultado.length >= 8) break;
+        }
+      }
+    }
   }
-  const body = resp.corpoJson;
-  if (Array.isArray(body)) return body as ContratacaoBusca[];
-  return (body as { data?: ContratacaoBusca[] })?.data ?? [];
+
+  logger.info(`PNCP contratos filtrados para "${termo}": ${resultado.length}`);
+  return resultado;
 }
 
 async function buscarItensContrato(cnpj: string, ano: number, seq: number): Promise<ContratacaoItem[]> {
-  const url = `${BASE}/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens?pagina=1&tamanhoPagina=50`;
-  const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
-  if (!resp.ok) return [];
-  const body = resp.corpoJson;
-  if (Array.isArray(body)) return body as ContratacaoItem[];
-  return (body as { data?: ContratacaoItem[] })?.data ?? [];
+  const url = `${BASE_PNCP}/v1/orgaos/${cnpj}/compras/${ano}/${seq}/itens?pagina=1&tamanhoPagina=50`;
+  try {
+    const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
+    if (!resp.ok) return [];
+    const body = resp.corpoJson;
+    if (Array.isArray(body)) return body as ContratacaoItem[];
+    return (body as { data?: ContratacaoItem[] })?.data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 async function buscarPrecos(
@@ -65,38 +103,26 @@ async function buscarPrecos(
   for (const termo of termos) {
     if (precos.length >= limite) break;
 
-    logger.info(`PNCP busca textual: termo="${termo}"`);
-    let contratacoes: ContratacaoBusca[];
+    let contratacoes: Contratacao[];
     try {
-      contratacoes = await buscarContratacoesPorTexto(termo);
+      contratacoes = await buscarContratacoesFiltradas(termo);
     } catch (e) {
-      logger.warn('PNCP: falha na busca textual, tentando próximo termo', { termo, e });
+      logger.warn('PNCP: falha ao buscar contratos', { termo, e });
       continue;
     }
 
-    logger.info(`PNCP: ${contratacoes.length} contratos para "${termo}"`);
-
-    const validas = contratacoes
-      .filter((c) => c.orgaoEntidade?.cnpj && c.anoCompra && c.sequencialCompra)
-      .slice(0, 5);
-
-    for (const ct of validas) {
+    for (const ct of contratacoes) {
       if (precos.length >= limite) break;
       const cnpj = ct.orgaoEntidade!.cnpj!;
       const ano = ct.anoCompra!;
       const seq = ct.sequencialCompra!;
       const ref = `PNCP — ${cnpj} ${ano}/${seq}`;
 
-      let itens: ContratacaoItem[];
-      try {
-        itens = await buscarItensContrato(cnpj, ano, seq);
-      } catch {
-        continue;
-      }
+      const itens = await buscarItensContrato(cnpj, ano, seq);
 
       for (const item of itens) {
         if (precos.length >= limite) break;
-        const desc = item.descricaoItem ?? item.descricao ?? '';
+        const desc = item.descricao ?? item.descricaoItem ?? '';
         const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
         if (!desc || !preco || preco <= 0) continue;
         if (matcherTermos([termo], normalizar(desc))) {
@@ -139,18 +165,21 @@ export const pncpAdapter: FonteAdapter = {
   async testar(_config: FonteCotacao, _itemAmostra: string): Promise<TesteResultado> {
     const inicio = Date.now();
     try {
-      const url = `${BASE}/pncp/v1/contratacoes/publicacoes?q=papel&pagina=1&tamanhoPagina=5`;
+      const hoje = new Date();
+      const ini = new Date(hoje);
+      ini.setDate(hoje.getDate() - 30);
+      const url = `${BASE_CONSULTA}/v1/contratacoes/publicacao?dataInicial=${fmt(ini)}&dataFinal=${fmt(hoje)}&codigoModalidadeContratacao=6&pagina=1&tamanhoPagina=10`;
       const resp = await requisitar(url, { timeoutMs: 12000, retries: 1 });
       const latenciaMs = Date.now() - inicio;
       if (!resp.ok) {
         return { ok: false, latenciaMs, amostraPreco: null, amostraReferencia: null, mensagem: `PNCP respondeu HTTP ${resp.status}.`, dadosBrutos: null };
       }
-      const body = resp.corpoJson;
-      const itens = Array.isArray(body) ? body : ((body as { data?: unknown[] })?.data ?? []);
+      const body = resp.corpoJson as { data?: unknown[]; totalRegistros?: number } | null;
+      const total = body?.totalRegistros ?? 0;
       return {
         ok: true, latenciaMs, amostraPreco: null, amostraReferencia: null,
-        mensagem: `PNCP acessível — ${itens.length} contratos para "papel" em ${latenciaMs}ms.`,
-        dadosBrutos: { contratos: itens.length },
+        mensagem: `PNCP acessível — ${total} contratações disponíveis em ${latenciaMs}ms.`,
+        dadosBrutos: { total },
       };
     } catch (e) {
       return {

@@ -8,8 +8,8 @@ import type { FonteAdapter } from './adapter.js';
 const BASE = 'https://pncp.gov.br/api';
 
 interface Ata {
-  cnpjOrgao?: string;
   numeroControlePNCPAta?: string;
+  objetoContratacao?: string;
   cancelado?: boolean;
 }
 
@@ -24,46 +24,81 @@ function normalizar(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').trim();
 }
 
-// Formato: {cnpj}-{modalidade}-{seq}/{ano}-{nata}
-function parsearAta(ata: Ata): { cnpj: string; anoCompra: number; sequencialCompra: number; sequencialAta: number } | null {
-  if (!ata.cnpjOrgao || !ata.numeroControlePNCPAta || ata.cancelado) return null;
-  const match = ata.numeroControlePNCPAta.match(/-(\d+)\/(\d{4})-(\d+)$/);
-  if (!match) return null;
-  return {
-    cnpj: ata.cnpjOrgao,
-    sequencialCompra: parseInt(match[1], 10),
-    anoCompra: parseInt(match[2], 10),
-    sequencialAta: parseInt(match[3], 10),
-  };
-}
-
 function matcherTermos(termos: string[], descNorm: string): boolean {
   return termos.some((t) => {
-    const palavras = normalizar(t).split(' ').filter((w) => w.length > 2);
+    const palavras = normalizar(t).split(/\s+/).filter((w) => w.length > 2);
     if (palavras.length === 0) return false;
     const acertos = palavras.filter((w) => descNorm.includes(w)).length;
     return acertos >= Math.max(1, Math.ceil(palavras.length * 0.5));
   });
 }
 
-async function buscarAtasPorTexto(termo: string): Promise<Ata[]> {
-  const url = `${BASE}/consulta/v1/atas?q=${encodeURIComponent(termo)}&pagina=1&tamanhoPagina=10`;
-  const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
-  if (!resp.ok) {
-    logger.warn(`PNCP Atas busca textual HTTP ${resp.status}`, { termo });
-    return [];
+function fmt(d: Date): string {
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+// Formato: {cnpj14}-{modalidade}-{sequencial}/{ano}-{sequencialAta}
+function parsearAta(ata: Ata): { cnpj: string; anoCompra: number; sequencialCompra: number; sequencialAta: number } | null {
+  if (!ata.numeroControlePNCPAta || ata.cancelado) return null;
+  const controle = ata.numeroControlePNCPAta;
+  const cnpj = controle.slice(0, 14);
+  if (cnpj.length !== 14) return null;
+  const match = controle.match(/-(\d+)\/(\d{4})-(\d+)$/);
+  if (!match) return null;
+  return {
+    cnpj,
+    sequencialCompra: parseInt(match[1], 10),
+    anoCompra: parseInt(match[2], 10),
+    sequencialAta: parseInt(match[3], 10),
+  };
+}
+
+async function buscarAtasFiltradas(termo: string, diasAtras = 1095): Promise<Ata[]> {
+  const hoje = new Date();
+  const ini = new Date(hoje);
+  ini.setDate(hoje.getDate() - diasAtras); // Atas têm vigência longa — busca 3 anos
+
+  const resultado: Ata[] = [];
+
+  for (let pagina = 1; pagina <= 3; pagina++) {
+    if (resultado.length >= 8) break;
+    const url = `${BASE}/consulta/v1/atas?dataInicial=${fmt(ini)}&dataFinal=${fmt(hoje)}&pagina=${pagina}&tamanhoPagina=500`;
+    let resp;
+    try {
+      resp = await requisitar(url, { timeoutMs: 12000, retries: 0 });
+    } catch {
+      break;
+    }
+    if (!resp.ok) break;
+
+    const body = resp.corpoJson as { data?: Ata[] } | null;
+    const atas = body?.data ?? [];
+
+    for (const ata of atas) {
+      if (ata.cancelado) continue;
+      const objNorm = normalizar(ata.objetoContratacao ?? '');
+      if (matcherTermos([termo], objNorm)) {
+        resultado.push(ata);
+        if (resultado.length >= 8) break;
+      }
+    }
   }
-  const body = resp.corpoJson as { data?: Ata[] } | null;
-  return body?.data ?? [];
+
+  logger.info(`PNCP Atas filtradas para "${termo}": ${resultado.length}`);
+  return resultado;
 }
 
 async function buscarItensAta(cnpj: string, ano: number, seq: number, nata: number): Promise<AtaItem[]> {
   const url = `${BASE}/pncp/v1/orgaos/${cnpj}/compras/${ano}/${seq}/atas/${nata}/itens?pagina=1&tamanhoPagina=50`;
-  const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
-  if (!resp.ok) return [];
-  const body = resp.corpoJson;
-  if (Array.isArray(body)) return body as AtaItem[];
-  return (body as { data?: AtaItem[] })?.data ?? [];
+  try {
+    const resp = await requisitar(url, { timeoutMs: 8000, retries: 0 });
+    if (!resp.ok) return [];
+    const body = resp.corpoJson;
+    if (Array.isArray(body)) return body as AtaItem[];
+    return (body as { data?: AtaItem[] })?.data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 async function buscarPrecos(
@@ -77,32 +112,28 @@ async function buscarPrecos(
   for (const termo of termos) {
     if (precos.length >= limite) break;
 
-    logger.info(`PNCP Atas busca textual: termo="${termo}"`);
     let atas: Ata[];
     try {
-      atas = await buscarAtasPorTexto(termo);
+      atas = await buscarAtasFiltradas(termo);
     } catch (e) {
-      logger.warn('PNCP Atas: falha na busca textual, tentando próximo termo', { termo, e });
+      logger.warn('PNCP Atas: falha ao buscar atas', { termo, e });
       continue;
     }
 
-    const candidatas = atas.map(parsearAta).filter((a): a is NonNullable<ReturnType<typeof parsearAta>> => a !== null).slice(0, 5);
-    logger.info(`PNCP Atas: ${candidatas.length} atas válidas para "${termo}"`);
+    const candidatas = atas
+      .map(parsearAta)
+      .filter((a): a is NonNullable<ReturnType<typeof parsearAta>> => a !== null)
+      .slice(0, 5);
 
     for (const { cnpj, anoCompra, sequencialCompra, sequencialAta } of candidatas) {
       if (precos.length >= limite) break;
       const ref = `PNCP Ata — ${cnpj} ${anoCompra}/${sequencialCompra}/ata${sequencialAta}`;
 
-      let itens: AtaItem[];
-      try {
-        itens = await buscarItensAta(cnpj, anoCompra, sequencialCompra, sequencialAta);
-      } catch {
-        continue;
-      }
+      const itens = await buscarItensAta(cnpj, anoCompra, sequencialCompra, sequencialAta);
 
       for (const item of itens) {
         if (precos.length >= limite) break;
-        const desc = item.descricaoItem ?? item.descricao ?? '';
+        const desc = item.descricao ?? item.descricaoItem ?? '';
         const preco = item.valorUnitario ?? item.valorUnitarioEstimado;
         if (!desc || !preco || preco <= 0) continue;
         if (matcherTermos([termo], normalizar(desc))) {
@@ -144,19 +175,21 @@ export const pncpAtasAdapter: FonteAdapter = {
   async testar(_config: FonteCotacao, _itemAmostra: string): Promise<TesteResultado> {
     const inicio = Date.now();
     try {
-      const url = `${BASE}/consulta/v1/atas?q=papel&pagina=1&tamanhoPagina=5`;
+      const hoje = new Date();
+      const ini = new Date(hoje);
+      ini.setDate(hoje.getDate() - 30);
+      const url = `${BASE}/consulta/v1/atas?dataInicial=${fmt(ini)}&dataFinal=${fmt(hoje)}&pagina=1&tamanhoPagina=10`;
       const resp = await requisitar(url, { timeoutMs: 15000, retries: 1 });
       const latenciaMs = Date.now() - inicio;
       if (!resp.ok) {
         return { ok: false, latenciaMs, amostraPreco: null, amostraReferencia: null, mensagem: `PNCP Atas respondeu HTTP ${resp.status}.`, dadosBrutos: null };
       }
       const body = resp.corpoJson as { data?: Ata[]; totalRegistros?: number } | null;
-      const count = body?.data?.length ?? 0;
       const total = body?.totalRegistros ?? 0;
       return {
         ok: true, latenciaMs, amostraPreco: null, amostraReferencia: null,
-        mensagem: `PNCP Atas acessível — ${count} atas para "papel" (${total.toLocaleString('pt-BR')} total) em ${latenciaMs}ms.`,
-        dadosBrutos: { atas: count, totalRegistros: total },
+        mensagem: `PNCP Atas acessível — ${total.toLocaleString('pt-BR')} atas disponíveis em ${latenciaMs}ms.`,
+        dadosBrutos: { total },
       };
     } catch (e) {
       return {
