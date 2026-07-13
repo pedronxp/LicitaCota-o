@@ -1,5 +1,10 @@
 import type { FonteCotacao } from '@prisma/client';
-import type { ItemNormalizado, ResultadoCotacao, TesteResultado } from '@licitapreco/shared';
+import type {
+  ContextoConsultaFonte,
+  ItemNormalizado,
+  ResultadoCotacao,
+  TesteResultado,
+} from '@licitapreco/shared';
 
 /**
  * Contrato comum dos adapters de fonte. Cada tipo de fonte (API_REST,
@@ -8,8 +13,12 @@ import type { ItemNormalizado, ResultadoCotacao, TesteResultado } from '@licitap
  */
 export interface FonteAdapter {
   slug: string;
-  consultar(item: ItemNormalizado, config: FonteCotacao): Promise<ResultadoCotacao>;
+  consultar(
+    item: ItemNormalizado,
+    config: FonteCotacao,
+    contexto?: ContextoConsultaFonte,
+  ): Promise<ResultadoCotacao>;
   testar(config: FonteCotacao, itemAmostra: string): Promise<TesteResultado>;
 }
 
-export type { ItemNormalizado, ResultadoCotacao, TesteResultado };
+export type { ContextoConsultaFonte, ItemNormalizado, ResultadoCotacao, TesteResultado };

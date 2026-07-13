@@ -5,7 +5,21 @@ import type {
   StatusPesquisa,
   StatusValidacaoFonte,
   TipoFonte,
+  AbrangenciaBuscaPncp,
 } from './enums.js';
+
+export interface EscopoBuscaPncp {
+  abrangencia: AbrangenciaBuscaPncp;
+  dataInicial: string;
+  dataFinal: string;
+  uf?: string;
+  municipio?: string;
+  orgaoCnpj?: string;
+}
+
+export interface ContextoConsultaFonte {
+  pncp?: EscopoBuscaPncp;
+}
 
 /** Item normalizado entregue aos adapters de cotação. */
 export interface ItemNormalizado {
@@ -26,6 +40,20 @@ export interface ResultadoCotacao {
   referencia: string;
   fundamentacaoArtigo: string;
   dadosBrutos: unknown;
+  /** Cotações individuais retornadas pela fonte, quando houver mais de uma. */
+  cotacoes?: Array<{
+    preco: number;
+    referencia: string;
+    contrato?: string;
+    numeroItem?: number;
+    orgaoCnpj?: string;
+    orgaoNome?: string;
+    fornecedorCnpj?: string;
+    fornecedorNome?: string;
+    tipoPreco?: 'homologado' | 'estimado';
+    unidadeMedida?: string;
+    descricaoOriginal?: string;
+  }>;
   erro?: string;
 }
 

@@ -28,11 +28,15 @@ export interface EmailParams {
   texto?: string;
 }
 
-export async function enviarEmail(params: EmailParams): Promise<void> {
+export async function enviarEmail(
+  params: EmailParams,
+): Promise<{ enviado: boolean; modo: 'smtp' | 'simulado' }> {
   const t = obterTransporter();
   if (!t) {
-    logger.warn(`[E-mail não enviado: SMTP não configurado] Para: ${params.para} | ${params.assunto}`);
-    return;
+    logger.warn(
+      `[E-mail não enviado: SMTP não configurado] Para: ${params.para} | ${params.assunto}`,
+    );
+    return { enviado: false, modo: 'simulado' };
   }
   await t.sendMail({
     from: env.SMTP_FROM,
@@ -41,6 +45,7 @@ export async function enviarEmail(params: EmailParams): Promise<void> {
     html: params.html,
     text: params.texto,
   });
+  return { enviado: true, modo: 'smtp' };
 }
 
 export function htmlPesquisaConcluida(titulo: string, link: string, resumo: string): string {

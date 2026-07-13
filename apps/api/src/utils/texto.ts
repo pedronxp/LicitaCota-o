@@ -1,16 +1,16 @@
 /**
- * Utilitários de normalização de texto, reusados pela leitura de planilha,
- * pelo motor de normalização e pelo catálogo de itens.
+ * Utilitários de normalização de texto, reutilizados pela leitura de planilha,
+ * pelo motor de cotação e pelo catálogo de itens.
  */
 
-/** Remove acentos/diacríticos. */
+/** Remove acentos e marcas diacríticas. */
 export function removerAcentos(texto: string): string {
-  return texto.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 /**
  * Normaliza para comparação/chave: minúsculas, sem acento, sem pontuação
- * excessiva, espaços colapsados.
+ * excessiva e com espaços colapsados.
  */
 export function normalizarChave(texto: string): string {
   return removerAcentos(texto)
@@ -20,7 +20,7 @@ export function normalizarChave(texto: string): string {
     .trim();
 }
 
-/** Compara dois títulos de coluna de forma tolerante (acento/caixa/espaço). */
+/** Compara dois títulos de coluna de forma tolerante. */
 export function tituloEquivalente(a: string, b: string): boolean {
   return normalizarChave(a) === normalizarChave(b);
 }

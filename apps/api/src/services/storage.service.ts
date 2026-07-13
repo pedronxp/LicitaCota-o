@@ -44,7 +44,7 @@ export async function salvarArquivo(
       throw new Error(`Falha ao enviar ao storage (${resp.status}).`);
     }
     return {
-      url: `${env.STORAGE_URL}/object/public/${env.STORAGE_BUCKET}/${chave}`,
+      url: `/api/arquivos/${chave}`,
       chave,
     };
   }
@@ -52,10 +52,14 @@ export async function salvarArquivo(
   // Driver local (default).
   await garantirDir();
   await fs.writeFile(path.join(DIR_LOCAL, chave), conteudo);
-  return { url: `/uploads/${chave}`, chave };
+  return { url: `/api/arquivos/${chave}`, chave };
 }
 
 export async function lerArquivoLocal(chave: string): Promise<Buffer | null> {
+  if (path.basename(chave) !== chave || !/^[a-zA-Z0-9._-]+$/.test(chave)) {
+    logger.warn('Tentativa de acesso a chave de arquivo inválida.', { chave });
+    return null;
+  }
   try {
     return await fs.readFile(path.join(DIR_LOCAL, chave));
   } catch (e) {
@@ -64,6 +68,23 @@ export async function lerArquivoLocal(chave: string): Promise<Buffer | null> {
   }
 }
 
+export async function lerArquivoArmazenado(chave: string): Promise<Buffer | null> {
+  if (path.basename(chave) !== chave || !/^[a-zA-Z0-9._-]+$/.test(chave)) return null;
+  if (env.STORAGE_DRIVER === 'supabase' && env.STORAGE_URL && env.STORAGE_KEY) {
+    const resposta = await fetch(`${env.STORAGE_URL}/object/${env.STORAGE_BUCKET}/${chave}`, {
+      headers: { Authorization: `Bearer ${env.STORAGE_KEY}` },
+    });
+    if (!resposta.ok) {
+      logger.warn('Arquivo não encontrado no storage remoto.', { chave, status: resposta.status });
+      return null;
+    }
+    return Buffer.from(await resposta.arrayBuffer());
+  }
+  return lerArquivoLocal(chave);
+}
+
 export function caminhoLocal(chave: string): string {
+  if (path.basename(chave) !== chave || !/^[a-zA-Z0-9._-]+$/.test(chave))
+    throw new Error('Chave de arquivo inválida.');
   return path.join(DIR_LOCAL, chave);
 }

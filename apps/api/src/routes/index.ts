@@ -8,6 +8,9 @@ import notificacoesRouter from './notificacoes.js';
 import fornecedoresRouter from './fornecedores.js';
 import auditoriaRouter from './auditoria.js';
 import debugRouter from './debug.js';
+import catalogoRouter from './catalogo.js';
+import arquivosRouter from './arquivos.js';
+import sugestoesRouter from './sugestoes.js';
 
 export function registrarRotas(app: Express): void {
   app.use('/api/auth', authRouter);
@@ -19,6 +22,11 @@ export function registrarRotas(app: Express): void {
   app.use('/api/fornecedores', fornecedoresRouter);
   app.use('/api/auditoria', auditoriaRouter);
   app.use('/api/debug', debugRouter);
+  app.use('/api/catalogo', catalogoRouter);
+  app.use('/api/arquivos', arquivosRouter);
+  app.use('/api/sugestoes', sugestoesRouter);
+  // Compatibilidade de URLs antigas, agora também protegidas por autenticação.
+  app.use('/uploads', arquivosRouter);
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, timestamp: new Date().toISOString() });

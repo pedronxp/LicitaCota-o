@@ -63,6 +63,19 @@ const STOPWORDS = new Set([
   'cor',
 ]);
 
+const NUCLEOS_GENERICOS = new Set([
+  'material',
+  'produto',
+  'unidade',
+  'caixa',
+  'pacote',
+  'conjunto',
+  'kit',
+  'jogo',
+  'peca',
+  'brinquedo',
+]);
+
 /** Limpa ruído, padroniza caixa/espaços e remove pontuação excessiva. */
 export function limpar(texto: string): string {
   return removerAcentos(texto)
@@ -137,6 +150,25 @@ export function gerarCascata(textoCompleto: string): string[] {
     if (!cascata.includes(min)) cascata.push(min);
   }
 
+  // Preserva especificações numéricas importantes mesmo quando há marca ou
+  // palavras intermediárias: "pendrive Sandisk 16gb" -> "pendrive 16gb".
+  const numericos = tokens.filter((t) => /\d/.test(t));
+  if (tokens.length > 1 && numericos.length > 0) {
+    const nucleoComEspecificacao = [tokens[0], ...numericos].join(' ');
+    if (!cascata.includes(nucleoComEspecificacao)) cascata.push(nucleoComEspecificacao);
+  }
+
+  // Último fallback apenas para núcleos descritivos, sem especificação
+  // numérica e fora de categorias genéricas.
+  if (
+    numericos.length === 0 &&
+    tokens[0]?.length >= 5 &&
+    !NUCLEOS_GENERICOS.has(tokens[0]) &&
+    !cascata.includes(tokens[0])
+  ) {
+    cascata.push(tokens[0]);
+  }
+
   return cascata.length > 0 ? cascata : [completo];
 }
 
@@ -174,7 +206,10 @@ export function montarItemNormalizado(
   },
   dicionario: EntradaDicionario[],
 ): ItemNormalizado {
-  const base = `${item.nome} ${item.descricao}`.trim();
+  const nomeNorm = normalizarChave(item.nome);
+  const descricaoNorm = normalizarChave(item.descricao);
+  const base =
+    nomeNorm === descricaoNorm ? item.descricao.trim() : `${item.nome} ${item.descricao}`.trim();
   const { descricaoNormalizada, cascata } = normalizarDescricao(base, dicionario);
   return {
     nome: item.nome,

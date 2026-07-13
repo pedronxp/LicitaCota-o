@@ -8,13 +8,15 @@ const router: Router = Router();
 // GET /api/auditoria — somente ADMIN, paginado
 router.get('/', autenticar, exigirRole('ADMIN'), async (req, res, next) => {
   try {
-    const { pagina, limite, acao, entidade, userId } = z.object({
-      pagina: z.coerce.number().int().min(1).default(1),
-      limite: z.coerce.number().int().min(1).max(100).default(50),
-      acao: z.string().optional(),
-      entidade: z.string().optional(),
-      userId: z.string().optional(),
-    }).parse(req.query);
+    const { pagina, limite, acao, entidade, userId } = z
+      .object({
+        pagina: z.coerce.number().int().min(1).default(1),
+        limite: z.coerce.number().int().min(1).max(100).default(50),
+        acao: z.string().optional(),
+        entidade: z.string().optional(),
+        userId: z.string().optional(),
+      })
+      .parse(req.query);
 
     const where = {
       ...(acao ? { acao: { contains: acao, mode: 'insensitive' as const } } : {}),
@@ -34,7 +36,9 @@ router.get('/', autenticar, exigirRole('ADMIN'), async (req, res, next) => {
     ]);
 
     res.json({ total, pagina, limite, logs });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 export default router;

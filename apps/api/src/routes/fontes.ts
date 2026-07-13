@@ -11,7 +11,10 @@ const router: Router = Router();
 
 const schemaFonte = z.object({
   nome: z.string().min(2),
-  slug: z.string().min(2).regex(/^[a-z0-9-]+$/),
+  slug: z
+    .string()
+    .min(2)
+    .regex(/^[a-z0-9-]+$/),
   tipo: z.enum(['API_REST', 'SCRAPING', 'TABELA_REFERENCIA']),
   endpointBase: z.string().url().optional().or(z.literal('')),
   metodoHttp: z.enum(['GET', 'POST']).default('GET'),
@@ -39,7 +42,9 @@ router.get('/', autenticar, async (_req, res, next) => {
       include: { criadoPor: { select: { id: true, nome: true } } },
     });
     res.json(fontes);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // GET /api/fontes/:id
@@ -51,7 +56,9 @@ router.get('/:id', autenticar, async (req, res, next) => {
     });
     if (!fonte) throw new NaoEncontradoError('Fonte não encontrada.');
     res.json(fonte);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/fontes — somente ADMIN
@@ -78,9 +85,17 @@ router.post('/', autenticar, exigirRole('ADMIN'), async (req, res, next) => {
         criadoPorId: req.usuario.id,
       },
     });
-    await registrarAuditoria({ userId: req.usuario.id, acao: 'FONTE_CRIADA', entidade: 'FonteCotacao', entidadeId: fonte.id, ip: req.ip });
+    await registrarAuditoria({
+      userId: req.usuario.id,
+      acao: 'FONTE_CRIADA',
+      entidade: 'FonteCotacao',
+      entidadeId: fonte.id,
+      ip: req.ip,
+    });
     res.status(201).json(fonte);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // PUT /api/fontes/:id — somente ADMIN
@@ -98,11 +113,17 @@ router.put('/:id', autenticar, exigirRole('ADMIN'), async (req, res, next) => {
         ...(data.tipo !== undefined && { tipo: data.tipo }),
         ...(data.endpointBase !== undefined && { endpointBase: data.endpointBase || null }),
         ...(data.metodoHttp !== undefined && { metodoHttp: data.metodoHttp }),
-        ...(data.parametrosTemplate !== undefined && { parametrosTemplate: jsonField(data.parametrosTemplate) }),
+        ...(data.parametrosTemplate !== undefined && {
+          parametrosTemplate: jsonField(data.parametrosTemplate),
+        }),
         ...(data.headers !== undefined && { headers: jsonField(data.headers) }),
-        ...(data.mapeamentoCampos !== undefined && { mapeamentoCampos: jsonField(data.mapeamentoCampos) }),
+        ...(data.mapeamentoCampos !== undefined && {
+          mapeamentoCampos: jsonField(data.mapeamentoCampos),
+        }),
         ...(data.regexValor !== undefined && { regexValor: data.regexValor }),
-        ...(data.fundamentacaoArtigo !== undefined && { fundamentacaoArtigo: data.fundamentacaoArtigo }),
+        ...(data.fundamentacaoArtigo !== undefined && {
+          fundamentacaoArtigo: data.fundamentacaoArtigo,
+        }),
         ...(data.limiteResultados !== undefined && { limiteResultados: data.limiteResultados }),
         ...(data.timeoutMs !== undefined && { timeoutMs: data.timeoutMs }),
         ...(data.pausaMs !== undefined && { pausaMs: data.pausaMs }),
@@ -111,9 +132,17 @@ router.put('/:id', autenticar, exigirRole('ADMIN'), async (req, res, next) => {
         statusValidacao: 'NAO_TESTADA',
       },
     });
-    await registrarAuditoria({ userId: req.usuario.id, acao: 'FONTE_ATUALIZADA', entidade: 'FonteCotacao', entidadeId: fonte.id, ip: req.ip });
+    await registrarAuditoria({
+      userId: req.usuario.id,
+      acao: 'FONTE_ATUALIZADA',
+      entidade: 'FonteCotacao',
+      entidadeId: fonte.id,
+      ip: req.ip,
+    });
     res.json(fonte);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // DELETE /api/fontes/:id — somente ADMIN
@@ -122,9 +151,18 @@ router.delete('/:id', autenticar, exigirRole('ADMIN'), async (req, res, next) =>
     const fonte = await prisma.fonteCotacao.findUnique({ where: { id: req.params.id } });
     if (!fonte) throw new NaoEncontradoError('Fonte não encontrada.');
     await prisma.fonteCotacao.delete({ where: { id: req.params.id } });
-    await registrarAuditoria({ userId: req.usuario.id, acao: 'FONTE_EXCLUIDA', entidade: 'FonteCotacao', entidadeId: req.params.id, detalhe: { nome: fonte.nome }, ip: req.ip });
+    await registrarAuditoria({
+      userId: req.usuario.id,
+      acao: 'FONTE_EXCLUIDA',
+      entidade: 'FonteCotacao',
+      entidadeId: req.params.id,
+      detalhe: { nome: fonte.nome },
+      ip: req.ip,
+    });
     res.json({ ok: true });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/fontes/:id/testar
@@ -132,7 +170,9 @@ router.post('/:id/testar', autenticar, async (req, res, next) => {
   try {
     const { fonte, resultado } = await testarFonte(req.params.id, req.usuario.id, req.ip);
     res.json({ fonte, resultado });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // PUT /api/fontes/:id/ativar
@@ -141,7 +181,9 @@ router.put('/:id/ativar', autenticar, exigirRole('ADMIN'), async (req, res, next
     const { ativo } = z.object({ ativo: z.boolean() }).parse(req.body);
     const fonte = await ativarFonte(req.params.id, ativo, req.usuario.id, req.ip);
     res.json(fonte);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 export default router;

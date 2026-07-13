@@ -13,9 +13,6 @@ export async function conferirSenha(senha: string, hash: string): Promise<boolea
 /** Senha válida: >= 8 caracteres, ao menos uma letra e um número. */
 export function senhaForte(senha: string): boolean {
   return (
-    typeof senha === 'string' &&
-    senha.length >= 8 &&
-    /[a-zA-Z]/.test(senha) &&
-    /[0-9]/.test(senha)
+    typeof senha === 'string' && senha.length >= 8 && /[a-zA-Z]/.test(senha) && /[0-9]/.test(senha)
   );
 }

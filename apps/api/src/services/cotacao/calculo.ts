@@ -18,9 +18,7 @@ export function mediana(valores: number[]): number {
   if (valores.length === 0) return 0;
   const ordenados = [...valores].sort((a, b) => a - b);
   const meio = Math.floor(ordenados.length / 2);
-  return ordenados.length % 2 !== 0
-    ? ordenados[meio]
-    : (ordenados[meio - 1] + ordenados[meio]) / 2;
+  return ordenados.length % 2 !== 0 ? ordenados[meio] : (ordenados[meio - 1] + ordenados[meio]) / 2;
 }
 
 export function media(valores: number[]): number {
@@ -50,7 +48,9 @@ export function descartarOutliers(
     else mantidos.push(v);
   }
   // Se tudo for descartado (dispersão extrema), mantém os originais para não zerar.
-  return mantidos.length === 0 ? { mantidos: positivos, descartados: [] } : { mantidos, descartados };
+  return mantidos.length === 0
+    ? { mantidos: positivos, descartados: [] }
+    : { mantidos, descartados };
 }
 
 /**
@@ -59,7 +59,12 @@ export function descartarOutliers(
  */
 export function calcularPrecoReferencia(
   precosBrutos: Array<number | null | undefined>,
-  opcoes: { metodo: MetodoCalculo; limiteOutlierPercentual: number; minFontes: number },
+  opcoes: {
+    metodo: MetodoCalculo;
+    limiteOutlierPercentual: number;
+    minFontes: number;
+    quantidadeOrigens?: number;
+  },
 ): ResultadoCalculo {
   const validos = precosBrutos.filter(
     (p): p is number => typeof p === 'number' && Number.isFinite(p) && p > 0,
@@ -94,12 +99,18 @@ export function calcularPrecoReferencia(
   // Arredonda para 4 casas (precisão de preço unitário).
   const precoReferencia = Math.round(preco * 10000) / 10000;
 
+  // O chamador deduplica as identidades antes do cálculo. Cada outlier removido
+  // deixa de contar também para a cobertura final.
+  const fontesComPreco = Math.max(
+    0,
+    (opcoes.quantidadeOrigens ?? validos.length) - descartados.length,
+  );
   return {
     precoReferencia,
     precosConsiderados: mantidos,
     precosDescartados: descartados,
-    fontesComPreco: validos.length,
-    completa: validos.length >= opcoes.minFontes,
+    fontesComPreco,
+    completa: fontesComPreco >= opcoes.minFontes,
   };
 }
 

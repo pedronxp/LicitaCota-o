@@ -12,6 +12,10 @@ import type { StatusPesquisa } from '@/types/api';
 
 const FILTROS: Array<{ label: string; value: StatusPesquisa | '' }> = [
   { label: 'Todas', value: '' },
+  { label: 'Rascunhos', value: 'RASCUNHO' },
+  { label: 'Coletando', value: 'COLETANDO' },
+  { label: 'Em revisão', value: 'EM_REVISAO' },
+  { label: 'Emitidas', value: 'EMITIDA' },
   { label: 'Aguardando', value: 'AGUARDANDO' },
   { label: 'Processando', value: 'PROCESSANDO' },
   { label: 'Concluídas', value: 'CONCLUIDA' },

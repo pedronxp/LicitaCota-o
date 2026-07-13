@@ -3,7 +3,67 @@ services:
     name: licitacota-o
     runtime: docker
     dockerfilePath: ./apps/api/Dockerfile
-    startCommand: "sh -c 'apps/api/node_modules/.bin/prisma db push --schema=apps/api/src/prisma/schema.prisma --skip-generate --accept-data-loss && node apps/api/dist/prisma/seed.js && node apps/api/dist/server.js'"
+    dockerContext: .
+    dockerCommand: "sh -c 'apps/api/node_modules/.bin/prisma db push --schema=apps/api/src/prisma/schema.prisma --skip-generate && node apps/api/dist/prisma/seed.js && node apps/api/dist/server.js'"
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: CREDENCIAL_ENC_KEY
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false
+      - key: FEATURE_DOSSIE_VERSIONADO
+        value: "false"
+      - key: FEATURE_DOSSIE_PILOT_USERS
+        sync: false
+      - key: EVIDENCE_RAW_RETENTION_DAYS
+        value: "180"
+
+  - type: worker
+    name: licitacota-o-worker
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    dockerCommand: 'node apps/api/dist/services/queue/worker.runner.js'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromService:
+          type: web
+          name: licitacota-o
+          envVarKey: DATABASE_URL
+      - key: REDIS_URL
+        fromService:
+          type: web
+          name: licitacota-o
+          envVarKey: REDIS_URL
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: licitacota-o
+          envVarKey: JWT_SECRET
+      - key: JWT_REFRESH_SECRET
+        fromService:
+          type: web
+          name: licitacota-o
+          envVarKey: JWT_REFRESH_SECRET
+      - key: CREDENCIAL_ENC_KEY
+        fromService:
+          type: web
+          name: licitacota-o
+          envVarKey: CREDENCIAL_ENC_KEY
+      - key: FEATURE_DOSSIE_VERSIONADO
+        fromService:
+          type: web
+          name: licitacota-o
+          envVarKey: FEATURE_DOSSIE_VERSIONADO

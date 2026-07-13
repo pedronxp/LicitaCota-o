@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import { TEXTOS_LEGAIS } from '@licitapreco/shared';
 import { prisma } from '../../config/prisma.js';
 import { NaoEncontradoError } from '../../utils/errors.js';
+export { gerarXlsxDoSnapshot } from '../documento/geracao-xlsx.service.js';
 
 /**
  * Geração da planilha de saída (adaptativa). Aba 1 "Banco de Preços" com as
@@ -38,7 +39,10 @@ export async function gerarPlanilha(pesquisaId: string): Promise<Buffer> {
   const pesquisa = await prisma.pesquisa.findUnique({
     where: { id: pesquisaId },
     include: {
-      itens: { orderBy: { sequencia: 'asc' }, include: { cotacoes: true } },
+      itens: {
+        orderBy: { sequencia: 'asc' },
+        include: { cotacoes: true, cotacoesDiretas: { include: { fornecedor: true } } },
+      },
     },
   });
   if (!pesquisa) throw new NaoEncontradoError('Pesquisa não encontrada.');
@@ -58,6 +62,26 @@ export async function gerarPlanilha(pesquisaId: string): Promise<Buffer> {
   const fontesOrdenadas = fontes.map((f) => ({ slug: f.slug, nome: f.nome }));
   if (slugsParticipantes.has('manual') && !fontesOrdenadas.find((f) => f.slug === 'manual')) {
     fontesOrdenadas.push({ slug: 'manual', nome: 'Cotação Manual' });
+  }
+  const fornecedoresDiretos = new Map<string, string>();
+  const agora = new Date();
+  for (const item of pesquisa.itens) {
+    for (const direta of item.cotacoesDiretas) {
+      if (
+        direta.status !== 'RESPONDIDA' ||
+        direta.preco === null ||
+        direta.outlier ||
+        (direta.validadeAte && direta.validadeAte < agora)
+      )
+        continue;
+      fornecedoresDiretos.set(
+        direta.fornecedor.cnpj,
+        direta.fornecedor.nomeFantasia || direta.fornecedor.razaoSocial,
+      );
+    }
+  }
+  for (const [cnpj, nome] of fornecedoresDiretos) {
+    fontesOrdenadas.push({ slug: `direta:${cnpj}`, nome: `Cotação Direta — ${nome}` });
   }
 
   // Colunas extras (preservadas) — coleta a partir do primeiro item que tiver.
@@ -97,13 +121,40 @@ export async function gerarPlanilha(pesquisaId: string): Promise<Buffer> {
   }
   fontesOrdenadas.forEach((f, i) => {
     const [a, b] = PARES_FONTE[i % PARES_FONTE.length];
-    defs.push({ titulo: `Cotação - ${f.nome}`, largura: 16, tipo: 'fonte-preco', corPar: a, chave: `cot:${f.slug}` });
-    defs.push({ titulo: `Referência - ${f.nome}`, largura: 30, tipo: 'fonte-ref', corPar: b, chave: `ref:${f.slug}` });
+    defs.push({
+      titulo: `Cotação - ${f.nome}`,
+      largura: 16,
+      tipo: 'fonte-preco',
+      corPar: a,
+      chave: `cot:${f.slug}`,
+    });
+    defs.push({
+      titulo: `Referência - ${f.nome}`,
+      largura: 30,
+      tipo: 'fonte-ref',
+      corPar: b,
+      chave: `ref:${f.slug}`,
+    });
   });
-  defs.push({ titulo: 'Preço de Referência Unit.', largura: 18, tipo: 'fechamento-valor', chave: 'precoRef' });
-  defs.push({ titulo: 'Preço Total Estimado', largura: 18, tipo: 'fechamento-valor', chave: 'precoTotal' });
+  defs.push({
+    titulo: 'Preço de Referência Unit.',
+    largura: 18,
+    tipo: 'fechamento-valor',
+    chave: 'precoRef',
+  });
+  defs.push({
+    titulo: 'Preço Total Estimado',
+    largura: 18,
+    tipo: 'fechamento-valor',
+    chave: 'precoTotal',
+  });
   defs.push({ titulo: 'Status', largura: 16, tipo: 'fechamento-texto', chave: 'status' });
-  defs.push({ titulo: 'Fundamentação Legal', largura: 36, tipo: 'fechamento-texto', chave: 'fundamentacao' });
+  defs.push({
+    titulo: 'Fundamentação Legal',
+    largura: 36,
+    tipo: 'fechamento-texto',
+    chave: 'fundamentacao',
+  });
 
   const totalColunas = defs.length;
 
@@ -136,7 +187,23 @@ export async function gerarPlanilha(pesquisaId: string): Promise<Buffer> {
   for (const item of pesquisa.itens) {
     const cotPorFonte = new Map<string, { preco: number | null; referencia: string | null }>();
     for (const c of item.cotacoes) {
-      cotPorFonte.set(c.fonte, { preco: c.preco ? Number(c.preco) : null, referencia: c.referencia });
+      cotPorFonte.set(c.fonte, {
+        preco: c.preco ? Number(c.preco) : null,
+        referencia: c.referencia,
+      });
+    }
+    for (const direta of item.cotacoesDiretas) {
+      if (
+        direta.status !== 'RESPONDIDA' ||
+        direta.preco === null ||
+        direta.outlier ||
+        (direta.validadeAte && direta.validadeAte < agora)
+      )
+        continue;
+      cotPorFonte.set(`direta:${direta.fornecedor.cnpj}`, {
+        preco: Number(direta.preco),
+        referencia: `${direta.fornecedor.razaoSocial} — CNPJ ${direta.fornecedor.cnpj} — resposta em ${direta.dataResposta?.toLocaleDateString('pt-BR') ?? 'data não informada'}${direta.anexoRespostaUrl ? ` — comprovante: ${direta.anexoRespostaUrl}` : ''}`,
+      });
     }
     const extras = (item.camposExtras ?? {}) as Record<string, unknown>;
     const row = ws.getRow(linha);
@@ -214,7 +281,9 @@ export async function gerarPlanilha(pesquisaId: string): Promise<Buffer> {
     const totalCell = totalRow.getCell(colPrecoTotal);
     totalCell.value =
       ultimaDados >= primeiraDados
-        ? { formula: `SUM(${cellRef(colPrecoTotal, primeiraDados)}:${cellRef(colPrecoTotal, ultimaDados)})` }
+        ? {
+            formula: `SUM(${cellRef(colPrecoTotal, primeiraDados)}:${cellRef(colPrecoTotal, ultimaDados)})`,
+          }
         : 0;
     totalCell.numFmt = FORMATO_MOEDA;
     totalCell.font = { bold: true, size: 10 };
@@ -244,7 +313,9 @@ export async function gerarPlanilha(pesquisaId: string): Promise<Buffer> {
     { texto: `Município: ${muni}/${uf}` },
     { texto: `Pesquisa: ${pesquisa.titulo}` },
     { texto: `Data de emissão: ${dataFmt}` },
-    { texto: config?.responsavelTecnico ? `Responsável técnico: ${config.responsavelTecnico}` : '' },
+    {
+      texto: config?.responsavelTecnico ? `Responsável técnico: ${config.responsavelTecnico}` : '',
+    },
     { texto: '' },
     { texto: '1. FUNDAMENTAÇÃO LEGAL', titulo: true },
     { texto: textos.cabecalhoPesquisa },
@@ -260,7 +331,14 @@ export async function gerarPlanilha(pesquisaId: string): Promise<Buffer> {
     linhasMetodologia.push({ texto: `• ${f.nome}: ${f.fundamentacaoArtigo ?? ''}` });
   }
   if (slugsParticipantes.has('manual')) {
-    linhasMetodologia.push({ texto: `• Cotação Manual: registrada por servidor responsável com justificativa.` });
+    linhasMetodologia.push({
+      texto: `• Cotação Manual: registrada por servidor responsável com justificativa.`,
+    });
+  }
+  for (const nome of fornecedoresDiretos.values()) {
+    linhasMetodologia.push({
+      texto: `• Cotação Direta — ${nome}: proposta identificada e registrada com rastreabilidade no sistema.`,
+    });
   }
 
   linhasMetodologia.push({ texto: '' });
@@ -319,7 +397,9 @@ function traduzMetodo(metodo: string): string {
   return mapa[metodo] ?? metodo;
 }
 
-function montarFundamentacao(cotacoes: Array<{ fundamentacaoArtigo: string | null; preco: unknown }>): string {
+function montarFundamentacao(
+  cotacoes: Array<{ fundamentacaoArtigo: string | null; preco: unknown }>,
+): string {
   const arts = new Set<string>();
   for (const c of cotacoes) {
     if (c.preco != null && c.fundamentacaoArtigo) arts.add(c.fundamentacaoArtigo);

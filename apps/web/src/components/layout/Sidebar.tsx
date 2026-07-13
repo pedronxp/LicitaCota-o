@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Gavel, FileSearch, Database, Users, Settings,
   Building2, ClipboardList, ChevronRight,
+  MessageSquarePlus,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/auth';
 import { cn, initials } from '@/lib/utils';
@@ -15,6 +16,7 @@ const NAV_ITEMS = [
   { href: '/fontes', icon: Database, label: 'Fontes', roles: ['ADMIN'] },
   { href: '/usuarios', icon: Users, label: 'Usuários', roles: ['ADMIN'] },
   { href: '/auditoria', icon: ClipboardList, label: 'Auditoria', roles: ['ADMIN'] },
+  { href: '/sugestoes', icon: MessageSquarePlus, label: 'Sugestões', roles: ['ADMIN', 'OPERADOR', 'VISUALIZADOR'] },
   { href: '/configuracoes', icon: Settings, label: 'Configurações', roles: ['ADMIN'] },
 ];
 

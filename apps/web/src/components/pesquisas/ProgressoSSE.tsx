@@ -87,6 +87,7 @@ export default function ProgressoSSE({ pesquisaId }: Props) {
               // Acumula log dos últimos 8 itens processados
               if (data.itemAtual) {
                 setItemLog((prev) => {
+                  if (prev[0]?.nome === data.itemAtual!.nome && prev[0]?.status === data.itemAtual!.statusItem) return prev;
                   const next = [
                     { nome: data.itemAtual!.nome, status: data.itemAtual!.statusItem as ItemLog['status'], ts: Date.now() },
                     ...prev,

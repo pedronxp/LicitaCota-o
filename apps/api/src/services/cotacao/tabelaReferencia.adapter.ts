@@ -85,7 +85,8 @@ export const tabelaReferenciaAdapter: FonteAdapter = {
           latenciaMs: Date.now() - inicio,
           amostraPreco: null,
           amostraReferencia: null,
-          mensagem: 'A tabela de referência está vazia. Importe a planilha de preços antes de ativar.',
+          mensagem:
+            'A tabela de referência está vazia. Importe a planilha de preços antes de ativar.',
           dadosBrutos: { total },
         };
       }
