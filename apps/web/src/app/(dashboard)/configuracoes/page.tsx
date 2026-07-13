@@ -8,8 +8,11 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { useConfig, useUpdateConfig } from '@/lib/queries';
 import type { MetodoCalculo } from '@/types/api';
+import { FieldHelp } from '@/components/common/FieldHelp';
 
 const schema = z.object({
+  nomeOrgao: z.string().optional(),
+  cnpjOrgao: z.string().regex(/^$|^\d{14}$/, 'Informe os 14 dígitos do CNPJ').optional(),
   municipio: z.string().optional(),
   uf: z.string().max(2).optional(),
   responsavelTecnico: z.string().optional(),
@@ -22,6 +25,12 @@ const schema = z.object({
   smtpFrom: z.string().optional(),
   suporteEmail: z.string().optional(),
   suporteWhatsapp: z.string().optional(),
+  secretariasTexto: z.string().optional(),
+  setoresTexto: z.string().optional(),
+  janelaBuscaDias: z.coerce.number().int().min(30).max(3650),
+  ajudaTituloPesquisa: z.string().optional(),
+  ajudaDescricaoItem: z.string().optional(),
+  tituloRelatorio: z.string().optional(),
 });
 type Form = z.infer<typeof schema>;
 
@@ -51,7 +60,7 @@ export default function ConfiguracoesPage() {
 
   const { register, handleSubmit, control, reset, formState: { errors, isDirty, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { metodoCalculo: 'MEDIANA', limiteOutlierPercentual: 30, minFontesCompleta: 3 },
+    defaultValues: { metodoCalculo: 'MENOR_PRECO', limiteOutlierPercentual: 30, minFontesCompleta: 3, janelaBuscaDias: 365 },
   });
 
   useEffect(() => {
@@ -59,6 +68,8 @@ export default function ConfiguracoesPage() {
     const smtp = config.smtpConfig as Record<string, unknown> | null ?? {};
     const suporte = config.canalSuporte as Record<string, unknown> | null ?? {};
     reset({
+      nomeOrgao: config.nomeOrgao ?? '',
+      cnpjOrgao: config.cnpjOrgao ?? '',
       municipio: config.municipio ?? '',
       uf: config.uf ?? '',
       responsavelTecnico: config.responsavelTecnico ?? '',
@@ -71,12 +82,20 @@ export default function ConfiguracoesPage() {
       smtpFrom: (smtp.from as string) ?? '',
       suporteEmail: (suporte.email as string) ?? '',
       suporteWhatsapp: (suporte.whatsapp as string) ?? '',
+      secretariasTexto: (config.secretarias ?? []).join('\n'),
+      setoresTexto: (config.setores ?? []).join('\n'),
+      janelaBuscaDias: config.janelaBuscaDias ?? 365,
+      ajudaTituloPesquisa: config.textosAjuda?.tituloPesquisa ?? '',
+      ajudaDescricaoItem: config.textosAjuda?.descricaoItem ?? '',
+      tituloRelatorio: String(config.templatesRelatorio?.titulo ?? ''),
     });
   }, [config, reset]);
 
   async function onSubmit(values: Form) {
     try {
       await update.mutateAsync({
+        nomeOrgao: values.nomeOrgao,
+        cnpjOrgao: values.cnpjOrgao,
         municipio: values.municipio,
         uf: values.uf,
         responsavelTecnico: values.responsavelTecnico,
@@ -93,6 +112,11 @@ export default function ConfiguracoesPage() {
           email: values.suporteEmail,
           whatsapp: values.suporteWhatsapp,
         },
+        secretarias: values.secretariasTexto?.split(/\r?\n/).map((valor) => valor.trim()).filter(Boolean),
+        setores: values.setoresTexto?.split(/\r?\n/).map((valor) => valor.trim()).filter(Boolean),
+        janelaBuscaDias: values.janelaBuscaDias,
+        textosAjuda: { tituloPesquisa: values.ajudaTituloPesquisa ?? '', descricaoItem: values.ajudaDescricaoItem ?? '' },
+        templatesRelatorio: { titulo: values.tituloRelatorio ?? 'Relatório de Pesquisa de Preços' },
       });
       toast.success('Configurações salvas');
       reset(values);
@@ -126,6 +150,15 @@ export default function ConfiguracoesPage() {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
         <Section icon={Globe} title="Identificação do órgão">
           <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <label className="label">Órgão <FieldHelp text="Nome oficial do órgão que realizará a pesquisa. Este dado não deve ser confundido com o órgão ou fornecedor encontrado no PNCP." /></label>
+              <input {...register('nomeOrgao')} className="input" placeholder="Prefeitura Municipal de Cataguases" />
+            </div>
+            <div>
+              <label className="label">CNPJ do órgão <FieldHelp text="Informe somente os 14 dígitos do CNPJ da Prefeitura. O CNPJ do órgão consultado e do fornecedor será armazenado separadamente em cada evidência." /></label>
+              <input {...register('cnpjOrgao')} className="input" inputMode="numeric" placeholder="00000000000000" maxLength={14} />
+              {errors.cnpjOrgao && <p className="mt-1 text-xs text-red-500">{errors.cnpjOrgao.message}</p>}
+            </div>
             <div className="col-span-2">
               <label className="label">Município</label>
               <input {...register('municipio')} className="input" placeholder="Nome do município" />
@@ -203,6 +236,22 @@ export default function ConfiguracoesPage() {
               <p className="text-[10px] text-zinc-400 mt-1">Mínimo de fontes para item ser considerado completo</p>
             </div>
           </div>
+        </Section>
+      </motion.div>
+
+      {/* E-mail */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
+        <Section icon={Globe} title="Estrutura administrativa e pesquisa">
+          <div className="grid grid-cols-2 gap-3"><div><label className="label">Secretarias <FieldHelp text="Informe uma secretaria por linha. A lista será oferecida no cadastro da pesquisa." /></label><textarea {...register('secretariasTexto')} rows={5} className="input resize-y" /></div><div><label className="label">Setores / unidades</label><textarea {...register('setoresTexto')} rows={5} className="input resize-y" /></div></div>
+          <div><label className="label">Janela padrão de busca PNCP (dias)</label><input {...register('janelaBuscaDias')} type="number" min={30} max={3650} className="input" /></div>
+        </Section>
+      </motion.div>
+
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }}>
+        <Section icon={HelpCircle} title="Dicas e modelos editáveis">
+          <div><label className="label">Ajuda do título da pesquisa</label><textarea {...register('ajudaTituloPesquisa')} rows={2} className="input resize-y" /></div>
+          <div><label className="label">Ajuda da descrição do item</label><textarea {...register('ajudaDescricaoItem')} rows={2} className="input resize-y" /></div>
+          <div><label className="label">Título institucional do relatório</label><input {...register('tituloRelatorio')} className="input" /></div>
         </Section>
       </motion.div>
 

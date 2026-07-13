@@ -19,13 +19,13 @@ const PAGE_TITLES: Record<string, string> = {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { accessToken, refreshToken } = useAuthStore();
+  const { accessToken, refreshToken, hasHydrated } = useAuthStore();
 
   useEffect(() => {
-    if (!accessToken && !refreshToken) {
+    if (hasHydrated && !accessToken && !refreshToken) {
       router.replace('/login');
     }
-  }, [accessToken, refreshToken, router]);
+  }, [accessToken, refreshToken, hasHydrated, router]);
 
   // Ping a cada 4 min para manter o servidor Render acordado
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => clearInterval(id);
   }, []);
 
-  if (!accessToken && !refreshToken) return null;
+  if (!hasHydrated || (!accessToken && !refreshToken)) return null;
 
   const title = Object.entries(PAGE_TITLES).find(([k]) => pathname.startsWith(k))?.[1] ?? 'LicitaPreço';
 

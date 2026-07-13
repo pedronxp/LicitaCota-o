@@ -18,9 +18,11 @@ async function seedConfiguracao(): Promise<void> {
     update: {},
     create: {
       id: 'singleton',
-      municipio: null,
-      uf: null,
-      metodoCalculo: 'MEDIA',
+      nomeOrgao: 'Prefeitura Municipal de Cataguases',
+      cnpjOrgao: null,
+      municipio: 'Cataguases',
+      uf: 'MG',
+      metodoCalculo: 'MENOR_PRECO',
       limiteOutlierPercentual: 30,
       minFontesCompleta: 2,
       itemAmostraTeste: 'caneta esferográfica azul',
@@ -55,7 +57,8 @@ async function seedFontes(): Promise<void> {
       parametrosTemplate: {},
       headers: {},
       mapeamentoCampos: {},
-      fundamentacaoArtigo: 'Art. 82 da Lei 14.133/2021 — Atas de Registro de Preço publicadas no PNCP',
+      fundamentacaoArtigo:
+        'Art. 82 da Lei 14.133/2021 — Atas de Registro de Preço publicadas no PNCP',
       limiteResultados: 5,
     },
   ];
@@ -75,17 +78,27 @@ async function seedFontes(): Promise<void> {
     });
   }
 
-  // Remove fontes que não funcionam mais
-  await prisma.fonteCotacao.deleteMany({
-    where: { slug: { notIn: ['pncp', 'pncp-atas'] } },
-  });
+  // Fontes adicionais cadastradas pelo órgão são preservadas. O seed é aditivo
+  // e idempotente; nunca remove configuração de produção.
 }
 
 async function seedDicionario(): Promise<void> {
   const termos = [
-    { termo: 'caneta esferografica', sinonimos: ['caneta', 'esferografica'], expansoes: ['azul', 'unidade'] },
-    { termo: 'papel a4', sinonimos: ['papel sulfite', 'sulfite a4'], expansoes: ['75g', 'resma', '500 folhas'] },
-    { termo: 'cadeira escritorio', sinonimos: ['cadeira giratoria', 'poltrona escritorio'], expansoes: ['ergonomica'] },
+    {
+      termo: 'caneta esferografica',
+      sinonimos: ['caneta', 'esferografica'],
+      expansoes: ['azul', 'unidade'],
+    },
+    {
+      termo: 'papel a4',
+      sinonimos: ['papel sulfite', 'sulfite a4'],
+      expansoes: ['75g', 'resma', '500 folhas'],
+    },
+    {
+      termo: 'cadeira escritorio',
+      sinonimos: ['cadeira giratoria', 'poltrona escritorio'],
+      expansoes: ['ergonomica'],
+    },
     { termo: 'computador', sinonimos: ['desktop', 'microcomputador', 'pc'], expansoes: [] },
     { termo: 'notebook', sinonimos: ['laptop', 'computador portatil'], expansoes: [] },
     { termo: 'detergente', sinonimos: ['detergente liquido'], expansoes: ['neutro', '500ml'] },

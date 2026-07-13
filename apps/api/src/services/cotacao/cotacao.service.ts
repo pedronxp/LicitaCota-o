@@ -57,15 +57,30 @@ export async function cotarItem(
         },
       });
       if (resultado.erro) houveErroFonte = true;
-      precos.push(resultado.preco);
+      const precosDaFonte = resultado.cotacoes?.filter((c) => c.preco > 0) ?? [];
+      precos.push(
+        ...(precosDaFonte.length > 0 ? precosDaFonte.map((c) => c.preco) : [resultado.preco]),
+      );
 
       // Registra histórico por fonte que retornou preço.
-      if (resultado.preco && resultado.preco > 0) {
+      if (precosDaFonte.length === 0 && resultado.preco && resultado.preco > 0) {
         await prisma.historicoPreco.create({
           data: {
             itemNome: normalizarChave(itemNormalizado.nome),
             fonte: fonte.slug,
             preco: resultado.preco,
+            pesquisaId: contexto.pesquisaId,
+            municipio: contexto.municipio ?? null,
+            uf: contexto.uf ?? null,
+          },
+        });
+      }
+      for (const cotacao of precosDaFonte) {
+        await prisma.historicoPreco.create({
+          data: {
+            itemNome: normalizarChave(itemNormalizado.nome),
+            fonte: fonte.slug,
+            preco: cotacao.preco,
             pesquisaId: contexto.pesquisaId,
             municipio: contexto.municipio ?? null,
             uf: contexto.uf ?? null,

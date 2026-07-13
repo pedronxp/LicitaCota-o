@@ -1,4 +1,5 @@
 import { Worker, type Job } from 'bullmq';
+import { pathToFileURL } from 'node:url';
 import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
@@ -10,7 +11,10 @@ import { notificar } from '../notificacao.service.js';
 import { registrarAuditoria } from '../auditoria.service.js';
 import { progressStore } from './progressStore.js';
 // PesquisaJobData definida localmente para evitar importação circular com pesquisa.queue.ts
-interface PesquisaJobData { pesquisaId: string; autorId: string; }
+interface PesquisaJobData {
+  pesquisaId: string;
+  autorId: string;
+}
 
 interface ParametrosCalculo {
   metodoCalculo: 'MEDIA' | 'MEDIANA' | 'MENOR_PRECO';
@@ -36,20 +40,32 @@ function parseRedisConnection(url: string) {
     };
   } catch {
     logger.warn('REDIS_URL inválida, usando localhost:6379');
-    return { host: 'localhost', port: 6379, maxRetriesPerRequest: null as null, enableReadyCheck: false };
+    return {
+      host: 'localhost',
+      port: 6379,
+      maxRetriesPerRequest: null as null,
+      enableReadyCheck: false,
+    };
   }
 }
 
 type OnProgress = (p: Record<string, unknown>) => Promise<void>;
 
-export async function processarPesquisaDiretamente(pesquisaId: string, autorId: string): Promise<void> {
+export async function processarPesquisaDiretamente(
+  pesquisaId: string,
+  autorId: string,
+): Promise<void> {
   await processarPesquisa(pesquisaId, autorId, async (p) => {
     progressStore.set(pesquisaId, p);
   });
   progressStore.del(pesquisaId);
 }
 
-async function processarPesquisa(pesquisaId: string, autorId: string, onProgress: OnProgress): Promise<void> {
+async function processarPesquisa(
+  pesquisaId: string,
+  autorId: string,
+  onProgress: OnProgress,
+): Promise<void> {
   const inicio = Date.now();
   logger.info('Processando pesquisa', { pesquisaId });
 
@@ -76,7 +92,8 @@ async function processarPesquisa(pesquisaId: string, autorId: string, onProgress
 
   const configSistema = await prisma.configuracaoSistema.findUnique({ where: { id: 'singleton' } });
   const parametros: ParametrosCalculo = {
-    metodoCalculo: (configSistema?.metodoCalculo ?? 'MEDIA') as ParametrosCalculo['metodoCalculo'],
+    metodoCalculo: (configSistema?.metodoCalculo ??
+      'MENOR_PRECO') as ParametrosCalculo['metodoCalculo'],
     limiteOutlierPercentual: configSistema?.limiteOutlierPercentual ?? 30,
     minFontesCompleta: configSistema?.minFontesCompleta ?? 2,
   };
@@ -124,6 +141,17 @@ async function processarPesquisa(pesquisaId: string, autorId: string, onProgress
       itensComErro++;
     }
 
+    // Persiste o avanço para que a visão geral acompanhe o job mesmo quando a
+    // aba detalhada estiver fechada. Incrementos atômicos evitam corrida entre itens.
+    await prisma.pesquisa.update({
+      where: { id: pesquisaId },
+      data: {
+        ...(resultado.statusItem === 'COTADO' ? { itensComCotacao: { increment: 1 } } : {}),
+        ...(resultado.statusItem === 'SEM_RESULTADO' ? { itensSemCotacao: { increment: 1 } } : {}),
+        ...(resultado.statusItem === 'ERRO' ? { itensComErro: { increment: 1 } } : {}),
+      },
+    });
+
     const progresso = {
       pesquisaId,
       status: 'PROCESSANDO',
@@ -135,7 +163,7 @@ async function processarPesquisa(pesquisaId: string, autorId: string, onProgress
       itemAtual: { sequencia: item.sequencia, nome: item.nome, statusItem: resultado.statusItem },
       tempoEstimadoSegundos:
         processados > 0
-          ? Math.round(((Date.now() - inicio) / processados) * (totalItens - processados) / 1000)
+          ? Math.round((((Date.now() - inicio) / processados) * (totalItens - processados)) / 1000)
           : undefined,
     };
     await onProgress(progresso);
@@ -146,8 +174,12 @@ async function processarPesquisa(pesquisaId: string, autorId: string, onProgress
       await Promise.race(semaphore);
     }
     const p: Promise<void> = processarItem(item).then(
-      () => { semaphore.splice(semaphore.indexOf(p), 1); },
-      () => { semaphore.splice(semaphore.indexOf(p), 1); },
+      () => {
+        semaphore.splice(semaphore.indexOf(p), 1);
+      },
+      () => {
+        semaphore.splice(semaphore.indexOf(p), 1);
+      },
     );
     semaphore.push(p);
   }
@@ -161,8 +193,15 @@ async function processarPesquisa(pesquisaId: string, autorId: string, onProgress
   let arquivoSaidaUrl: string | null = null;
   try {
     const buffer = await gerarPlanilha(pesquisaId);
-    const tituloSlug = pesquisa.titulo.replace(/[^a-z0-9]/gi, '_').toLowerCase().slice(0, 40);
-    const { url } = await salvarArquivo(buffer, `resultado_${tituloSlug}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const tituloSlug = pesquisa.titulo
+      .replace(/[^a-z0-9]/gi, '_')
+      .toLowerCase()
+      .slice(0, 40);
+    const { url } = await salvarArquivo(
+      buffer,
+      `resultado_${tituloSlug}.xlsx`,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
     arquivoSaidaUrl = url;
   } catch (e) {
     logger.warn('Falha ao gerar/salvar planilha de saída', { pesquisaId, erro: e });
@@ -197,17 +236,33 @@ async function processarPesquisa(pesquisaId: string, autorId: string, onProgress
     acao: 'PESQUISA_CONCLUIDA',
     entidade: 'Pesquisa',
     entidadeId: pesquisaId,
-    detalhe: { totalItens, itensComCotacao, itensSemCotacao, itensComErro, duracaoMs: Date.now() - inicio },
+    detalhe: {
+      totalItens,
+      itensComCotacao,
+      itensSemCotacao,
+      itensComErro,
+      duracaoMs: Date.now() - inicio,
+    },
   });
 
-  logger.info('Pesquisa concluída', { pesquisaId, itensComCotacao, itensSemCotacao, itensComErro, duracaoMs: Date.now() - inicio });
+  logger.info('Pesquisa concluída', {
+    pesquisaId,
+    itensComCotacao,
+    itensSemCotacao,
+    itensComErro,
+    duracaoMs: Date.now() - inicio,
+  });
 }
 
 async function tratarErro(job: Job<PesquisaJobData>, err: Error): Promise<void> {
   const { pesquisaId, autorId } = job.data;
   const esgotouTentativas = job.attemptsMade >= (job.opts.attempts ?? 1);
 
-  logger.error('Erro ao processar pesquisa', { pesquisaId, tentativa: job.attemptsMade, erro: err.message });
+  logger.error('Erro ao processar pesquisa', {
+    pesquisaId,
+    tentativa: job.attemptsMade,
+    erro: err.message,
+  });
 
   if (esgotouTentativas) {
     await prisma.pesquisa
@@ -236,29 +291,37 @@ async function tratarErro(job: Job<PesquisaJobData>, err: Error): Promise<void> 
   }
 }
 
-const worker = new Worker<PesquisaJobData>(
-  'pesquisa',
-  async (job) => {
-    await processarPesquisa(
-      job.data.pesquisaId,
-      job.data.autorId,
-      async (p) => { await job.updateProgress(p as Record<string, unknown>); },
-    );
-  },
-  {
-    connection: parseRedisConnection(env.REDIS_URL),
-    concurrency: 2,
-  },
+function iniciarWorker(): Worker<PesquisaJobData> {
+  const worker = new Worker<PesquisaJobData>(
+    'pesquisa',
+    async (job) => {
+      await processarPesquisa(job.data.pesquisaId, job.data.autorId, async (p) => {
+        await job.updateProgress(p as Record<string, unknown>);
+      });
+    },
+    {
+      connection: parseRedisConnection(env.REDIS_URL),
+      concurrency: 2,
+    },
+  );
+
+  worker.on('failed', async (job, err) => {
+    if (job) await tratarErro(job, err).catch(() => {});
+  });
+
+  worker.on('error', (err) => {
+    logger.error('Erro interno do worker BullMQ', err);
+  });
+
+  logger.info('Worker de pesquisas iniciado (concorrência: 2 jobs × 3 itens simultâneos).');
+  return worker;
+}
+
+// A API importa processarPesquisaDiretamente para operar sem Redis. O worker
+// BullMQ deve iniciar apenas quando este arquivo for executado como processo.
+const executadoDiretamente = Boolean(
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href,
 );
-
-worker.on('failed', async (job, err) => {
-  if (job) await tratarErro(job, err).catch(() => {});
-});
-
-worker.on('error', (err) => {
-  logger.error('Erro interno do worker BullMQ', err);
-});
-
-logger.info('Worker de pesquisas iniciado (concorrência: 2 jobs × 3 itens simultâneos).');
+const worker = executadoDiretamente ? iniciarWorker() : undefined;
 
 export default worker;

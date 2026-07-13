@@ -1,8 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from './api';
 import type {
-  Pesquisa, FonteCotacao, Usuario, Fornecedor, Notificacao,
-  ConfiguracaoSistema, LogAuditoria, ItemPesquisa,
+  Pesquisa,
+  FonteCotacao,
+  Usuario,
+  Fornecedor,
+  Notificacao,
+  ConfiguracaoSistema,
+  LogAuditoria,
+  ItemPesquisa,
+  DocumentoPesquisa,
+  PreviaDocumentoPesquisa,
+  SugestaoMelhoria,
+  EscopoBuscaPncp,
+  ResultadoBuscaOnline,
 } from '@/types/api';
 
 // ─── Pesquisas ──────────────────────────────────────────────────────────────
@@ -25,16 +36,142 @@ export function usePesquisa(id: string) {
     queryKey: ['pesquisa', id],
     queryFn: () => apiFetch<Pesquisa>(`/api/pesquisas/${id}`),
     enabled: !!id,
+    refetchInterval: (query) =>
+      ['PROCESSANDO', 'COLETANDO'].includes(query.state.data?.status ?? '') ? 2_000 : false,
   });
 }
 
 export function useCreatePesquisa() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { titulo: string; descricao?: string; municipio?: string; uf?: string }) =>
-      apiFetch<Pesquisa>('/api/pesquisas', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: (data: {
+      titulo: string;
+      descricao?: string;
+      municipio?: string;
+      uf?: string;
+      modoEntrada?: 'MANUAL' | 'PLANILHA';
+      numeroProcesso?: string;
+      orgaoSetor?: string;
+      responsavelPesquisa?: string;
+      secretariaSolicitante?: string;
+      unidadeAdministrativa?: string;
+      exercicioFinanceiro?: number;
+      modalidade?: string;
+      dotacaoOrcamentaria?: string;
+      observacoesGerais?: string;
+    }) => apiFetch<Pesquisa>('/api/pesquisas', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pesquisas'] }),
   });
+}
+
+export interface SugestaoItemCatalogo {
+  id: string | null;
+  nome: string;
+  descricaoPadrao: string;
+  unidadeMedida: string | null;
+  vezesUsado: number;
+  ultimoPrecoReferencia: number | null;
+  ultimaDataReferencia: string | null;
+  origem: 'CATALOGO' | 'HISTORICO';
+  score: number;
+}
+
+export function useSugestoesItens(termo: string) {
+  const busca = termo.trim();
+  return useQuery({
+    queryKey: ['catalogo', 'sugestoes', busca],
+    queryFn: () =>
+      apiFetch<{ termo: string; sugestoes: SugestaoItemCatalogo[] }>(
+        `/api/catalogo/itens/sugestoes?termo=${encodeURIComponent(busca)}&limite=8`,
+      ),
+    enabled: busca.length >= 3,
+    staleTime: 60_000,
+  });
+}
+
+export function useCreateItemManual(pesquisaId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      nome: string;
+      descricao: string;
+      especificacao?: string;
+      marcaModelo?: string;
+      localEntrega?: string;
+      prazoEntregaDias?: number;
+      garantia?: string;
+      caracteristicasObrigatorias?: string;
+      caracteristicasDesejaveis?: string;
+      quantidade: number;
+      unidadeMedida: string;
+    }) =>
+      apiFetch<ItemPesquisa>(`/api/pesquisas/${pesquisaId}/itens`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pesquisa', pesquisaId] });
+      qc.invalidateQueries({ queryKey: ['pesquisas'] });
+    },
+  });
+}
+
+export function useBuscarPrecosAtualizados(pesquisaId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, escopo }: { itemId: string; escopo: EscopoBuscaPncp }) =>
+      apiFetch<ResultadoBuscaOnline>(`/api/pesquisas/${pesquisaId}/itens/${itemId}/buscar-precos`, {
+        method: 'POST',
+        body: JSON.stringify(escopo),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pesquisa', pesquisaId] }),
+  });
+}
+
+export function usePreviaDocumento(pesquisaId: string) {
+  return useQuery({
+    queryKey: ['pesquisa', pesquisaId, 'documentos', 'previa'],
+    queryFn: () =>
+      apiFetch<PreviaDocumentoPesquisa>(`/api/pesquisas/${pesquisaId}/documentos/previa`),
+    enabled: !!pesquisaId,
+  });
+}
+
+export function useDocumentosPesquisa(pesquisaId: string) {
+  return useQuery({
+    queryKey: ['pesquisa', pesquisaId, 'documentos'],
+    queryFn: () => apiFetch<DocumentoPesquisa[]>(`/api/pesquisas/${pesquisaId}/documentos`),
+    enabled: !!pesquisaId,
+  });
+}
+
+function useAcaoFluxo(pesquisaId: string, caminho: string, metodo: 'POST' | 'PATCH' = 'POST') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body?: Record<string, unknown>) =>
+      apiFetch(`/api/pesquisas/${pesquisaId}/${caminho}`, {
+        method: metodo,
+        body: body ? JSON.stringify(body) : undefined,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pesquisa', pesquisaId] });
+      qc.invalidateQueries({ queryKey: ['pesquisa', pesquisaId, 'documentos'] });
+      qc.invalidateQueries({ queryKey: ['pesquisas'] });
+    },
+  });
+}
+
+export function useIniciarColeta(pesquisaId: string) {
+  return useAcaoFluxo(pesquisaId, 'coleta/iniciar');
+}
+export function useEncerrarColeta(pesquisaId: string) {
+  return useAcaoFluxo(pesquisaId, 'coleta/encerrar');
+}
+export function useAprovarPesquisa(pesquisaId: string) {
+  return useAcaoFluxo(pesquisaId, 'aprovar');
+}
+export function useEmitirPesquisa(pesquisaId: string) {
+  return useAcaoFluxo(pesquisaId, 'emitir');
 }
 
 export function useUpdatePesquisa(id: string) {
@@ -60,7 +197,10 @@ export function useDeletePesquisa() {
 export function useProcessarPesquisa(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiFetch<{ ok: boolean; jobId: string }>(`/api/pesquisas/${id}/processar`, { method: 'POST' }),
+    mutationFn: () =>
+      apiFetch<{ ok: boolean; jobId: string }>(`/api/pesquisas/${id}/processar`, {
+        method: 'POST',
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pesquisa', id] }),
   });
 }
@@ -68,7 +208,10 @@ export function useProcessarPesquisa(id: string) {
 export function useReprocessarPesquisa(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiFetch<{ ok: boolean; jobId: string }>(`/api/pesquisas/${id}/reprocessar`, { method: 'POST' }),
+    mutationFn: () =>
+      apiFetch<{ ok: boolean; jobId: string }>(`/api/pesquisas/${id}/reprocessar`, {
+        method: 'POST',
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pesquisa', id] }),
   });
 }
@@ -76,8 +219,17 @@ export function useReprocessarPesquisa(id: string) {
 export function useUpdateItem(pesquisaId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ itemId, data }: { itemId: string; data: { observacao?: string; precoManual?: number; referenciaManual?: string } }) =>
-      apiFetch<ItemPesquisa>(`/api/pesquisas/${pesquisaId}/itens/${itemId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    mutationFn: ({
+      itemId,
+      data,
+    }: {
+      itemId: string;
+      data: { observacao?: string; precoManual?: number; referenciaManual?: string };
+    }) =>
+      apiFetch<ItemPesquisa>(`/api/pesquisas/${pesquisaId}/itens/${itemId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pesquisa', pesquisaId] }),
   });
 }
@@ -120,10 +272,15 @@ export function useDeleteFonte() {
 export function useTestarFonte() {
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<{ resultado: { ok: boolean; latenciaMs: number; amostraPreco: number | null; amostraReferencia: string | null; mensagem: string } }>(
-        `/api/fontes/${id}/testar`,
-        { method: 'POST' },
-      ),
+      apiFetch<{
+        resultado: {
+          ok: boolean;
+          latenciaMs: number;
+          amostraPreco: number | null;
+          amostraReferencia: string | null;
+          mensagem: string;
+        };
+      }>(`/api/fontes/${id}/testar`, { method: 'POST' }),
   });
 }
 
@@ -131,7 +288,10 @@ export function useAtivarFonte() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, ativo }: { id: string; ativo: boolean }) =>
-      apiFetch<FonteCotacao>(`/api/fontes/${id}/ativar`, { method: 'PUT', body: JSON.stringify({ ativo }) }),
+      apiFetch<FonteCotacao>(`/api/fontes/${id}/ativar`, {
+        method: 'PUT',
+        body: JSON.stringify({ ativo }),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['fontes'] }),
   });
 }
@@ -151,8 +311,13 @@ export function useUsuarios(pagina = 1) {
 export function useConvidarUsuario() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { email: string; nome: string; role?: string; cargo?: string; setor?: string }) =>
-      apiFetch<Usuario>('/api/usuarios', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: (data: {
+      email: string;
+      nome: string;
+      role?: string;
+      cargo?: string;
+      setor?: string;
+    }) => apiFetch<Usuario>('/api/usuarios', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['usuarios'] }),
   });
 }
@@ -174,7 +339,12 @@ export function useFornecedores(busca = '', pagina = 1) {
     queryFn: () => {
       const p = new URLSearchParams({ pagina: String(pagina), limite: '20' });
       if (busca) p.set('busca', busca);
-      return apiFetch<{ total: number; pagina: number; limite: number; fornecedores: Fornecedor[] }>(`/api/fornecedores?${p}`);
+      return apiFetch<{
+        total: number;
+        pagina: number;
+        limite: number;
+        fornecedores: Fornecedor[];
+      }>(`/api/fornecedores?${p}`);
     },
   });
 }
@@ -182,9 +352,105 @@ export function useFornecedores(busca = '', pagina = 1) {
 export function useCreateFornecedor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { razaoSocial: string; cnpj: string; contatoNome?: string; email?: string; telefone?: string }) =>
-      apiFetch<Fornecedor>('/api/fornecedores', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: (data: {
+      razaoSocial: string;
+      cnpj: string;
+      nomeFantasia?: string;
+      contatoNome?: string;
+      email?: string;
+      telefone?: string;
+      endereco?: string;
+      municipio?: string;
+      uf?: string;
+      origem?: 'MANUAL' | 'PNCP';
+      referenciaOrigem?: string;
+    }) => apiFetch<Fornecedor>('/api/fornecedores', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['fornecedores'] }),
+  });
+}
+
+export function useUpdateFornecedor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Fornecedor> }) =>
+      apiFetch<Fornecedor>(`/api/fornecedores/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fornecedores'] }),
+  });
+}
+
+export function useDeleteFornecedor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/api/fornecedores/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fornecedores'] }),
+  });
+}
+
+export interface SugestaoFornecedorPncp {
+  cnpj: string;
+  razaoSocial: string;
+  ocorrencias: number;
+  itens: string[];
+  ultimoPreco: number | null;
+  referencia: string;
+}
+
+export function useSugestoesFornecedoresPncp() {
+  return useQuery({
+    queryKey: ['fornecedores', 'sugestoes-pncp'],
+    queryFn: () =>
+      apiFetch<{ sugestoes: SugestaoFornecedorPncp[] }>('/api/fornecedores/sugestoes-pncp'),
+  });
+}
+
+export function useImportarFornecedorPncp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sugestao: SugestaoFornecedorPncp) =>
+      apiFetch<Fornecedor>('/api/fornecedores/importar-pncp', {
+        method: 'POST',
+        body: JSON.stringify({
+          confirmar: true,
+          cnpj: sugestao.cnpj,
+          razaoSocial: sugestao.razaoSocial,
+          referencia: sugestao.referencia,
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fornecedores'] });
+      qc.invalidateQueries({ queryKey: ['fornecedores', 'sugestoes-pncp'] });
+    },
+  });
+}
+
+export interface MetricasFornecedores {
+  totalAtivos: number;
+  totalSolicitacoes: number;
+  taxaResposta: number;
+  tempoMedioRespostaHoras: number | null;
+  ranking: Array<{ nome: string; respostas: number }>;
+  alertas: Array<{ tipo: string; mensagem: string }>;
+}
+
+export function useMetricasFornecedores() {
+  return useQuery({
+    queryKey: ['fornecedores', 'metricas'],
+    queryFn: () => apiFetch<MetricasFornecedores>('/api/fornecedores/metricas'),
+  });
+}
+
+export function useRecomendacoesFornecedores(itemId: string) {
+  return useQuery({
+    queryKey: ['fornecedores', 'recomendacoes', itemId],
+    queryFn: () =>
+      apiFetch<{
+        recomendacoes: Array<{ fornecedor: Fornecedor; score: number; motivos: string[] }>;
+      }>(`/api/fornecedores/recomendacoes?itemId=${itemId}`),
+    enabled: Boolean(itemId),
   });
 }
 
@@ -194,7 +460,9 @@ export function useNotificacoes() {
   return useQuery({
     queryKey: ['notificacoes'],
     queryFn: () =>
-      apiFetch<{ notificacoes: Notificacao[]; totalNaoLidas: number }>('/api/notificacoes?limite=20'),
+      apiFetch<{ notificacoes: Notificacao[]; totalNaoLidas: number }>(
+        '/api/notificacoes?limite=20',
+      ),
     refetchInterval: 30_000,
   });
 }
@@ -233,6 +501,47 @@ export function useUpdateConfig() {
   });
 }
 
+export function useSugestoesMelhoria() {
+  return useQuery({
+    queryKey: ['sugestoes-melhoria'],
+    queryFn: () => apiFetch<{ total: number; sugestoes: SugestaoMelhoria[] }>('/api/sugestoes'),
+  });
+}
+
+export function useCriarSugestaoMelhoria() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      data: Pick<SugestaoMelhoria, 'tipo' | 'titulo' | 'descricao' | 'prioridade'> & {
+        tela?: string;
+        anexoUrl?: string;
+      },
+    ) =>
+      apiFetch<SugestaoMelhoria>('/api/sugestoes', { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sugestoes-melhoria'] }),
+  });
+}
+
+export function useAtualizarSugestaoMelhoria() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: Partial<Pick<SugestaoMelhoria, 'status' | 'prioridade' | 'comentarioInterno'>> & {
+        responsavelId?: string | null;
+      };
+    }) =>
+      apiFetch<SugestaoMelhoria>(`/api/sugestoes/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sugestoes-melhoria'] }),
+  });
+}
+
 // ─── Auditoria ───────────────────────────────────────────────────────────────
 
 export function useAuditoria(pagina = 1, acao?: string) {
@@ -241,7 +550,9 @@ export function useAuditoria(pagina = 1, acao?: string) {
     queryFn: () => {
       const p = new URLSearchParams({ pagina: String(pagina), limite: '30' });
       if (acao) p.set('acao', acao);
-      return apiFetch<{ total: number; pagina: number; limite: number; logs: LogAuditoria[] }>(`/api/auditoria?${p}`);
+      return apiFetch<{ total: number; pagina: number; limite: number; logs: LogAuditoria[] }>(
+        `/api/auditoria?${p}`,
+      );
     },
   });
 }
@@ -258,8 +569,14 @@ export function useMe() {
 export function useUpdateMe() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Partial<Pick<Usuario, 'nome' | 'cargo' | 'setor' | 'municipio' | 'uf' | 'prefNotifEmail' | 'prefNotifInApp'>>) =>
-      apiFetch<Usuario>('/api/auth/me', { method: 'PUT', body: JSON.stringify(data) }),
+    mutationFn: (
+      data: Partial<
+        Pick<
+          Usuario,
+          'nome' | 'cargo' | 'setor' | 'municipio' | 'uf' | 'prefNotifEmail' | 'prefNotifInApp'
+        >
+      >,
+    ) => apiFetch<Usuario>('/api/auth/me', { method: 'PUT', body: JSON.stringify(data) }),
     onSuccess: (user) => {
       qc.setQueryData(['me'], user);
       qc.invalidateQueries({ queryKey: ['usuarios'] });

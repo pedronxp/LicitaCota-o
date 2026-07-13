@@ -29,11 +29,15 @@ COPY packages/shared/package.json ./packages/shared/
 RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/api/src/prisma/schema.prisma ./apps/api/src/prisma/schema.prisma
 COPY --from=builder /app/apps/api/src/prisma/migrations ./apps/api/src/prisma/migrations
+
+# pnpm keeps Prisma's generated client inside its virtual store. Generate it in
+# the runtime image so the client lands next to the installed production package
+# instead of depending on a package-manager-internal path from the builder.
+RUN pnpm -F api exec prisma generate --schema=src/prisma/schema.prisma
 
 ENV NODE_ENV=production
 EXPOSE 3001
 
-CMD ["sh", "-c", "apps/api/node_modules/.bin/prisma db push --schema=apps/api/src/prisma/schema.prisma --skip-generate --accept-data-loss && node apps/api/dist/prisma/seed.js && node apps/api/dist/server.js"]
+CMD ["sh", "-c", "apps/api/node_modules/.bin/prisma db push --schema=apps/api/src/prisma/schema.prisma --skip-generate && node apps/api/dist/prisma/seed.js && node apps/api/dist/server.js"]

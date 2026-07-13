@@ -41,7 +41,11 @@ function celulaTexto(valor: ExcelJS.CellValue): string {
   if (typeof valor === 'object') {
     const obj = valor as { text?: string; result?: unknown; richText?: Array<{ text: string }> };
     if (typeof obj.text === 'string') return obj.text.trim();
-    if (Array.isArray(obj.richText)) return obj.richText.map((r) => r.text).join('').trim();
+    if (Array.isArray(obj.richText))
+      return obj.richText
+        .map((r) => r.text)
+        .join('')
+        .trim();
     if (obj.result != null) return String(obj.result).trim();
     return '';
   }
@@ -115,7 +119,10 @@ export async function lerPlanilha(buffer: Buffer): Promise<ResultadoLeitura> {
     throw new ValidacaoError(
       'Não foi possível identificar as colunas essenciais (Nome/Descrição e Quantidade). ' +
         `Colunas encontradas: ${encontradas}. Baixe o modelo de planilha e ajuste os títulos.`,
-      { encontradas: colunas.map((c) => c.tituloOriginal), esperadas: ['Nome/Descrição', 'Quantidade'] },
+      {
+        encontradas: colunas.map((c) => c.tituloOriginal),
+        esperadas: ['Nome/Descrição', 'Quantidade'],
+      },
     );
   }
 
@@ -227,7 +234,8 @@ export function lerListaColada(texto: string): ResultadoLeitura {
 
     const camposExtras: Record<string, string | number | null> = {};
     for (const col of colunas) {
-      if (col.campo === 'extra') camposExtras[col.tituloOriginal] = (cols[col.indice] ?? '').trim() || null;
+      if (col.campo === 'extra')
+        camposExtras[col.tituloOriginal] = (cols[col.indice] ?? '').trim() || null;
     }
 
     sequencia++;
@@ -243,6 +251,7 @@ export function lerListaColada(texto: string): ResultadoLeitura {
     });
   }
 
-  if (itens.length === 0) throw new ValidacaoError('Nenhum item válido encontrado no texto colado.');
+  if (itens.length === 0)
+    throw new ValidacaoError('Nenhum item válido encontrado no texto colado.');
   return { colunas, itens, colunasExtras, linhaCabecalho: 1 };
 }

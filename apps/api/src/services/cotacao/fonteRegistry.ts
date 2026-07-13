@@ -6,7 +6,7 @@ import { tabelaReferenciaAdapter } from './tabelaReferencia.adapter.js';
 import type { FonteAdapter } from './adapter.js';
 
 const ADAPTERS_POR_SLUG: Record<string, FonteAdapter> = {
-  'pncp': pncpAdapter,
+  pncp: pncpAdapter,
   'pncp-atas': pncpAtasAdapter,
 };
 

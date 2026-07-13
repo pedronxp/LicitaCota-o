@@ -4,6 +4,11 @@ import type { StatusPesquisa, StatusItem, StatusValidacaoFonte } from '@/types/a
 const STATUS_PESQUISA: Record<StatusPesquisa, { label: string; cls: string }> = {
   AGUARDANDO:   { label: 'Aguardando',   cls: 'bg-zinc-100  text-zinc-600  dark:bg-zinc-800  dark:text-zinc-400' },
   PROCESSANDO:  { label: 'Processando',  cls: 'bg-blue-50   text-blue-600  dark:bg-blue-900/30 dark:text-blue-400' },
+  RASCUNHO:     { label: 'Rascunho',     cls: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400' },
+  COLETANDO:    { label: 'Coletando',    cls: 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' },
+  EM_REVISAO:   { label: 'Em revisão',   cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  APROVADA:     { label: 'Aprovada',     cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  EMITIDA:      { label: 'Emitida',      cls: 'bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
   CONCLUIDA:    { label: 'Concluída',    cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
   ERRO:         { label: 'Erro',         cls: 'bg-red-50    text-red-600   dark:bg-red-900/30  dark:text-red-400' },
 };

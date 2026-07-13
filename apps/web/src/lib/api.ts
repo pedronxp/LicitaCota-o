@@ -76,3 +76,11 @@ export async function apiFetch<T>(
 export function apiUrl(path: string): string {
   return `${BASE}${path}`;
 }
+
+export async function abrirArquivoAutenticado(path: string): Promise<void> {
+  const resposta = await fetch(apiUrl(path), { headers: { Authorization: `Bearer ${_accessToken ?? ''}` } });
+  if (!resposta.ok) throw new Error('Não foi possível abrir o arquivo.');
+  const url = URL.createObjectURL(await resposta.blob());
+  window.open(url, '_blank', 'noopener,noreferrer');
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

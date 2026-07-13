@@ -46,9 +46,7 @@ export async function notificar(dados: NovaNotificacao): Promise<void> {
 }
 
 /** Notifica todos os administradores (ex.: fonte que caiu). */
-export async function notificarAdmins(
-  dados: Omit<NovaNotificacao, 'userId'>,
-): Promise<void> {
+export async function notificarAdmins(dados: Omit<NovaNotificacao, 'userId'>): Promise<void> {
   const admins = await prisma.user.findMany({ where: { role: 'ADMIN', ativo: true } });
   await Promise.all(admins.map((a) => notificar({ ...dados, userId: a.id })));
 }

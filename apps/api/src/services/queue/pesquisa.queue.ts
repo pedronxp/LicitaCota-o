@@ -18,14 +18,26 @@ function parseRedisConnection(url: string) {
       password: u.password || undefined,
       username: u.username || undefined,
       db: Number(u.pathname.slice(1)) || 0,
-      maxRetriesPerRequest: null as null,
+      maxRetriesPerRequest: 1,
       enableReadyCheck: false,
       lazyConnect: true,
+      connectTimeout: 1500,
+      enableOfflineQueue: false,
+      retryStrategy: () => null,
       ...(isTls ? { tls: {} } : {}),
     };
   } catch {
     logger.warn('REDIS_URL inválida, usando localhost:6379');
-    return { host: 'localhost', port: 6379, maxRetriesPerRequest: null as null, enableReadyCheck: false, lazyConnect: true };
+    return {
+      host: 'localhost',
+      port: 6379,
+      maxRetriesPerRequest: 1,
+      enableReadyCheck: false,
+      lazyConnect: true,
+      connectTimeout: 1500,
+      enableOfflineQueue: false,
+      retryStrategy: () => null,
+    };
   }
 }
 
@@ -39,6 +51,7 @@ export function getPesquisaQueue(): Queue {
 }
 
 export async function buscarJobPorId(jobId: string) {
+  if (jobId.startsWith('local-')) return null;
   return getPesquisaQueue().getJob(jobId);
 }
 
@@ -53,7 +66,10 @@ export async function enfileirarPesquisa(pesquisaId: string, autorId: string): P
     return job.id ?? '';
   } catch (err) {
     // Redis indisponível — processa diretamente em background (sem fila)
-    logger.warn('Redis indisponível, processando pesquisa diretamente.', { pesquisaId, erro: String(err) });
+    logger.warn('Redis indisponível, processando pesquisa diretamente.', {
+      pesquisaId,
+      erro: String(err),
+    });
     const jobId = `local-${pesquisaId}`;
     setImmediate(() => {
       processarPesquisaDiretamente(pesquisaId, autorId).catch((e: unknown) => {

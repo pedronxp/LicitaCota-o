@@ -1,14 +1,16 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, Plus, X, Search, Loader2, ExternalLink } from 'lucide-react';
+import { Building2, Plus, X, Search, Loader2, ExternalLink, Pencil, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { useFornecedores } from '@/lib/queries';
+import { useCreateFornecedor, useDeleteFornecedor, useFornecedores, useImportarFornecedorPncp, useMetricasFornecedores, useSugestoesFornecedoresPncp, useUpdateFornecedor } from '@/lib/queries';
+import type { Fornecedor } from '@/types/api';
 import EmptyState from '@/components/common/EmptyState';
 import { formatDate, cn } from '@/lib/utils';
+import { apiFetch } from '@/lib/api';
 
 const schema = z.object({
   cnpj: z.string().min(14, 'CNPJ inválido').max(18, 'CNPJ inválido'),
@@ -16,6 +18,8 @@ const schema = z.object({
   nomeFantasia: z.string().optional(),
   email: z.string().email('E-mail inválido').optional().or(z.literal('')),
   telefone: z.string().optional(),
+  contatoNome: z.string().optional(),
+  endereco: z.string().optional(),
   municipio: z.string().optional(),
   uf: z.string().max(2).optional(),
 });
@@ -35,10 +39,47 @@ export default function FornecedoresPage() {
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [cnpjDisplay, setCnpjDisplay] = useState('');
+  const [editing, setEditing] = useState<Fornecedor | null>(null);
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false);
+  const [ultimoCnpjConsultado, setUltimoCnpjConsultado] = useState('');
+  const [situacaoCadastral, setSituacaoCadastral] = useState('');
+  const criar = useCreateFornecedor();
+  const atualizar = useUpdateFornecedor();
+  const desativar = useDeleteFornecedor();
+  const { data: sugestoesPncp } = useSugestoesFornecedoresPncp();
+  const importarPncp = useImportarFornecedorPncp();
+  const { data: metricas } = useMetricasFornecedores();
 
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
   });
+
+  useEffect(() => {
+    const cnpj = cnpjDisplay.replace(/\D/g, '');
+    if (!modalOpen || editing || cnpj.length !== 14 || cnpj === ultimoCnpjConsultado) return;
+    const timer = setTimeout(async () => {
+      setConsultandoCnpj(true);
+      try {
+        const dados = await apiFetch<{ razaoSocial: string; nomeFantasia: string; email: string; telefone: string; municipio: string; uf: string; endereco: string; situacaoCadastral: string }>(`/api/fornecedores/consultar-cnpj/${cnpj}`);
+        setValue('razaoSocial', dados.razaoSocial, { shouldValidate: true });
+        setValue('nomeFantasia', dados.nomeFantasia);
+        setValue('email', dados.email);
+        setValue('telefone', dados.telefone);
+        setValue('municipio', dados.municipio);
+        setValue('uf', dados.uf);
+        setValue('endereco', dados.endereco);
+        setSituacaoCadastral(dados.situacaoCadastral);
+        setUltimoCnpjConsultado(cnpj);
+        toast.success('Dados preenchidos pela base pública de CNPJ.');
+      } catch (e) {
+        setUltimoCnpjConsultado(cnpj);
+        toast.error(e instanceof Error ? e.message : 'Não foi possível consultar o CNPJ');
+      } finally {
+        setConsultandoCnpj(false);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [cnpjDisplay, editing, modalOpen, setValue, ultimoCnpjConsultado]);
 
   const filtered = useMemo(() => {
     if (!data?.fornecedores) return [];
@@ -52,11 +93,19 @@ export default function FornecedoresPage() {
     );
   }, [data, search]);
 
-  async function onSubmit(_values: Form) {
+  async function onSubmit(values: Form) {
     try {
-      toast.success('Fornecedor cadastrado com sucesso');
+      if (editing) {
+        await atualizar.mutateAsync({ id: editing.id, data: values });
+        toast.success('Fornecedor atualizado com sucesso');
+      } else {
+        await criar.mutateAsync(values);
+        toast.success('Fornecedor cadastrado com sucesso');
+      }
       reset();
       setCnpjDisplay('');
+      setSituacaoCadastral('');
+      setEditing(null);
       setModalOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao cadastrar fornecedor');
@@ -65,8 +114,37 @@ export default function FornecedoresPage() {
 
   function handleClose() {
     setModalOpen(false);
+    setEditing(null);
     reset();
     setCnpjDisplay('');
+    setSituacaoCadastral('');
+  }
+
+  function handleEdit(f: Fornecedor) {
+    setEditing(f);
+    setCnpjDisplay(formatCNPJ(f.cnpj));
+    reset({
+      cnpj: f.cnpj,
+      razaoSocial: f.razaoSocial,
+      nomeFantasia: f.nomeFantasia ?? '',
+      email: f.email ?? '',
+      telefone: f.telefone ?? '',
+      contatoNome: f.contatoNome ?? '',
+      endereco: f.endereco ?? '',
+      municipio: f.municipio ?? '',
+      uf: f.uf ?? '',
+    });
+    setModalOpen(true);
+  }
+
+  async function handleDeactivate(f: Fornecedor) {
+    if (!confirm(`Desativar o fornecedor ${f.nomeFantasia || f.razaoSocial}?`)) return;
+    try {
+      await desativar.mutateAsync(f.id);
+      toast.success('Fornecedor desativado.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao desativar fornecedor');
+    }
   }
 
   return (
@@ -76,10 +154,48 @@ export default function FornecedoresPage() {
           <h2 className="text-xl font-semibold text-zinc-900 dark:text-white">Fornecedores</h2>
           <p className="text-sm text-zinc-500 mt-0.5">Gerencie os fornecedores cadastrados no sistema</p>
         </div>
-        <button onClick={() => setModalOpen(true)} className="btn-primary gap-2">
+        <button onClick={() => { setEditing(null); reset(); setCnpjDisplay(''); setUltimoCnpjConsultado(''); setSituacaoCadastral(''); setModalOpen(true); }} className="btn-primary gap-2">
           <Plus className="w-4 h-4" /> Novo fornecedor
         </button>
       </div>
+
+      {metricas && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <div className="card"><p className="text-xs text-zinc-400">Fornecedores ativos</p><p className="text-2xl font-semibold">{metricas.totalAtivos}</p></div>
+            <div className="card"><p className="text-xs text-zinc-400">Solicitações</p><p className="text-2xl font-semibold">{metricas.totalSolicitacoes}</p></div>
+            <div className="card"><p className="text-xs text-zinc-400">Taxa de resposta</p><p className="text-2xl font-semibold">{metricas.taxaResposta}%</p></div>
+            <div className="card"><p className="text-xs text-zinc-400">Tempo médio</p><p className="text-2xl font-semibold">{metricas.tempoMedioRespostaHoras == null ? '—' : `${metricas.tempoMedioRespostaHoras}h`}</p></div>
+          </div>
+          {metricas.alertas.length > 0 && <div className="card mb-4 border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-900/10"><p className="text-xs font-semibold text-amber-700 mb-1">Alertas de auditoria</p>{metricas.alertas.map((a) => <p key={`${a.tipo}-${a.mensagem}`} className="text-xs text-amber-700">• {a.mensagem}</p>)}</div>}
+        </>
+      )}
+
+      {(sugestoesPncp?.sugestoes.length ?? 0) > 0 && (
+        <div className="card mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-semibold">Fornecedores encontrados no PNCP</h3>
+              <p className="text-xs text-zinc-400">Revise e confirme individualmente antes de importar.</p>
+            </div>
+            <span className="text-xs text-zinc-400">{sugestoesPncp?.sugestoes.length} sugestões</span>
+          </div>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {sugestoesPncp?.sugestoes.map((s) => (
+              <div key={s.cnpj} className="flex items-center gap-3 rounded-xl border border-zinc-200 dark:border-zinc-700 p-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{s.razaoSocial}</p>
+                  <p className="text-xs text-zinc-400">{formatCNPJ(s.cnpj)} · {s.ocorrencias} ocorrência(s) · {s.itens.join(', ')}</p>
+                </div>
+                <button type="button" onClick={async () => {
+                  try { await importarPncp.mutateAsync(s); toast.success('Fornecedor importado do PNCP.'); }
+                  catch (e) { toast.error(e instanceof Error ? e.message : 'Erro ao importar fornecedor'); }
+                }} disabled={importarPncp.isPending} className="btn-secondary text-xs">Confirmar importação</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative mb-4">
@@ -141,6 +257,12 @@ export default function FornecedoresPage() {
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 )}
+                <button type="button" onClick={() => handleEdit(f)} className="btn-ghost w-7 h-7 p-0" title="Editar fornecedor">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" onClick={() => handleDeactivate(f)} className="btn-ghost w-7 h-7 p-0 text-red-500" title="Desativar fornecedor">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             </motion.div>
           ))}
@@ -162,7 +284,7 @@ export default function FornecedoresPage() {
             >
               <div className="glass-strong rounded-3xl w-full max-w-lg pointer-events-auto max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-zinc-100 dark:border-zinc-800">
-                  <h2 className="text-base font-semibold">Novo fornecedor</h2>
+                  <h2 className="text-base font-semibold">{editing ? 'Editar fornecedor' : 'Novo fornecedor'}</h2>
                   <button onClick={handleClose} className="btn-ghost w-8 h-8 p-0"><X className="w-4 h-4" /></button>
                 </div>
                 <form onSubmit={handleSubmit(onSubmit)} className="px-6 py-5 space-y-4">
@@ -179,6 +301,9 @@ export default function FornecedoresPage() {
                       placeholder="00.000.000/0001-00"
                       inputMode="numeric"
                     />
+                    <input type="hidden" {...register('cnpj')} />
+                    {consultandoCnpj && <p className="mt-1 text-xs text-blue-500 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Consultando dados públicos…</p>}
+                    {situacaoCadastral && <p className="mt-1 text-xs text-emerald-500">Situação cadastral: {situacaoCadastral}</p>}
                     {errors.cnpj && <p className="mt-1 text-xs text-red-500">{errors.cnpj.message}</p>}
                   </div>
                   <div>
@@ -201,6 +326,14 @@ export default function FornecedoresPage() {
                       <input {...register('telefone')} className="input" placeholder="(00) 00000-0000" />
                     </div>
                   </div>
+                  <div>
+                    <label className="label">Pessoa de contato</label>
+                    <input {...register('contatoNome')} className="input" placeholder="Responsável pela proposta" />
+                  </div>
+                  <div>
+                    <label className="label">Endereço</label>
+                    <input {...register('endereco')} className="input" placeholder="Preenchido automaticamente pelo CNPJ" />
+                  </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
                       <label className="label">Município</label>
@@ -214,7 +347,7 @@ export default function FornecedoresPage() {
                   <div className="flex gap-3 pt-1">
                     <button type="button" onClick={handleClose} className="btn-secondary flex-1">Cancelar</button>
                     <button type="submit" disabled={isSubmitting} className="btn-primary flex-1">
-                      {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Cadastrar'}
+                      {isSubmitting || criar.isPending || atualizar.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : editing ? 'Salvar alterações' : 'Cadastrar'}
                     </button>
                   </div>
                 </form>

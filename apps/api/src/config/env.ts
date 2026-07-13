@@ -42,6 +42,16 @@ export const env = {
   STORAGE_KEY: opcional('STORAGE_KEY', ''),
   FRONTEND_URL: opcional('FRONTEND_URL', 'http://localhost:3000'),
   CREDENCIAL_ENC_KEY: opcional('CREDENCIAL_ENC_KEY', 'chave-padrao-dev-troque-em-prod-32b!!'),
+  EVIDENCE_RAW_RETENTION_DAYS: Number(opcional('EVIDENCE_RAW_RETENTION_DAYS', '180')),
+  FEATURE_DOSSIE_VERSIONADO:
+    opcional(
+      'FEATURE_DOSSIE_VERSIONADO',
+      isTest ? 'true' : process.env.NODE_ENV === 'production' ? 'false' : 'true',
+    ) === 'true',
+  FEATURE_DOSSIE_PILOT_USERS: opcional('FEATURE_DOSSIE_PILOT_USERS', '')
+    .split(',')
+    .map((valor) => valor.trim())
+    .filter(Boolean),
 } as const;
 
 export const isProd = env.NODE_ENV === 'production';

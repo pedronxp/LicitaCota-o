@@ -13,36 +13,42 @@ import { logger } from '../utils/logger.js';
 const router: Router = Router();
 
 function gerarTokens(userId: string, role: string) {
-  const access = jwt.sign(
-    { sub: userId, role, tipo: 'access' },
-    env.JWT_SECRET,
-    { expiresIn: env.JWT_ACCESS_EXPIRES as jwt.SignOptions['expiresIn'] },
-  );
-  const refresh = jwt.sign(
-    { sub: userId, tipo: 'refresh' },
-    env.JWT_REFRESH_SECRET,
-    { expiresIn: env.JWT_REFRESH_EXPIRES as jwt.SignOptions['expiresIn'] },
-  );
+  const access = jwt.sign({ sub: userId, role, tipo: 'access' }, env.JWT_SECRET, {
+    expiresIn: env.JWT_ACCESS_EXPIRES as jwt.SignOptions['expiresIn'],
+  });
+  const refresh = jwt.sign({ sub: userId, tipo: 'refresh' }, env.JWT_REFRESH_SECRET, {
+    expiresIn: env.JWT_REFRESH_EXPIRES as jwt.SignOptions['expiresIn'],
+  });
   return { access, refresh };
 }
 
 const selectUsuarioPublico = {
-  id: true, email: true, nome: true, cargo: true, setor: true,
-  municipio: true, uf: true, role: true, ativo: true,
-  prefNotifEmail: true, prefNotifInApp: true,
+  id: true,
+  email: true,
+  nome: true,
+  cargo: true,
+  setor: true,
+  municipio: true,
+  uf: true,
+  role: true,
+  ativo: true,
+  prefNotifEmail: true,
+  prefNotifInApp: true,
 } as const;
 
 // POST /api/auth/cadastro — registro público de novo usuário
 router.post('/cadastro', async (req, res, next) => {
   try {
-    const dados = z.object({
-      nome: z.string().min(2, 'Nome deve ter ao menos 2 caracteres'),
-      email: z.string().email('E-mail inválido'),
-      senha: z.string().min(8, 'Mínimo 8 caracteres'),
-      municipio: z.string().optional(),
-      uf: z.string().length(2).optional(),
-      cargo: z.string().optional(),
-    }).parse(req.body);
+    const dados = z
+      .object({
+        nome: z.string().min(2, 'Nome deve ter ao menos 2 caracteres'),
+        email: z.string().email('E-mail inválido'),
+        senha: z.string().min(8, 'Mínimo 8 caracteres'),
+        municipio: z.string().optional(),
+        uf: z.string().length(2).optional(),
+        cargo: z.string().optional(),
+      })
+      .parse(req.body);
 
     if (!senhaForte(dados.senha)) {
       throw new ValidacaoError('A senha deve ter ao menos 8 caracteres, com letras e números.');
@@ -84,16 +90,20 @@ router.post('/cadastro', async (req, res, next) => {
 
     await registrarAuditoria({ userId: user.id, acao: 'CADASTRO', ip: req.ip });
     res.status(201).json({ ok: true, mensagem: 'Conta criada com sucesso. Faça login.' });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/auth/login
 router.post('/login', async (req, res, next) => {
   try {
-    const { email, senha } = z.object({
-      email: z.string().email(),
-      senha: z.string().min(1),
-    }).parse(req.body);
+    const { email, senha } = z
+      .object({
+        email: z.string().email(),
+        senha: z.string().min(1),
+      })
+      .parse(req.body);
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.ativo || !user.passwordHash) {
@@ -110,9 +120,19 @@ router.post('/login', async (req, res, next) => {
     res.json({
       accessToken: access,
       refreshToken: refresh,
-      usuario: { id: user.id, email: user.email, nome: user.nome, role: user.role, cargo: user.cargo, municipio: user.municipio, uf: user.uf },
+      usuario: {
+        id: user.id,
+        email: user.email,
+        nome: user.nome,
+        role: user.role,
+        cargo: user.cargo,
+        municipio: user.municipio,
+        uf: user.uf,
+      },
     });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/auth/refresh
@@ -135,7 +155,9 @@ router.post('/refresh', async (req, res, next) => {
     const { access, refresh } = gerarTokens(user.id, user.role);
     await prisma.user.update({ where: { id: user.id }, data: { refreshToken: refresh } });
     res.json({ accessToken: access, refreshToken: refresh });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/auth/logout
@@ -144,7 +166,9 @@ router.post('/logout', autenticar, async (req, res, next) => {
     await prisma.user.update({ where: { id: req.usuario.id }, data: { refreshToken: null } });
     await registrarAuditoria({ userId: req.usuario.id, acao: 'LOGOUT', ip: req.ip });
     res.json({ ok: true });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // GET /api/auth/me
@@ -156,21 +180,25 @@ router.get('/me', autenticar, async (req, res, next) => {
     });
     if (!user) throw new NaoEncontradoError();
     res.json(user);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // PUT /api/auth/me — atualização de perfil próprio
 router.put('/me', autenticar, async (req, res, next) => {
   try {
-    const data = z.object({
-      nome: z.string().min(2).optional(),
-      cargo: z.string().optional(),
-      setor: z.string().optional(),
-      municipio: z.string().optional(),
-      uf: z.string().length(2).optional(),
-      prefNotifEmail: z.boolean().optional(),
-      prefNotifInApp: z.boolean().optional(),
-    }).parse(req.body);
+    const data = z
+      .object({
+        nome: z.string().min(2).optional(),
+        cargo: z.string().optional(),
+        setor: z.string().optional(),
+        municipio: z.string().optional(),
+        uf: z.string().length(2).optional(),
+        prefNotifEmail: z.boolean().optional(),
+        prefNotifInApp: z.boolean().optional(),
+      })
+      .parse(req.body);
 
     const user = await prisma.user.update({
       where: { id: req.usuario.id },
@@ -178,16 +206,20 @@ router.put('/me', autenticar, async (req, res, next) => {
       select: selectUsuarioPublico,
     });
     res.json(user);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // PUT /api/auth/senha — troca de senha autenticado
 router.put('/senha', autenticar, async (req, res, next) => {
   try {
-    const { senhaAtual, novaSenha } = z.object({
-      senhaAtual: z.string(),
-      novaSenha: z.string().min(8),
-    }).parse(req.body);
+    const { senhaAtual, novaSenha } = z
+      .object({
+        senhaAtual: z.string(),
+        novaSenha: z.string().min(8),
+      })
+      .parse(req.body);
 
     const user = await prisma.user.findUnique({ where: { id: req.usuario.id } });
     if (!user?.passwordHash) throw new NaoAutorizadoError();
@@ -203,24 +235,30 @@ router.put('/senha', autenticar, async (req, res, next) => {
       data: { passwordHash: await hashSenha(novaSenha), refreshToken: null },
     });
     res.json({ ok: true });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/auth/esqueci-senha — gera JWT de reset e envia por e-mail
 router.post('/esqueci-senha', async (req, res, next) => {
   try {
     const { email } = z.object({ email: z.string().email() }).parse(req.body);
-    const resposta = { ok: true, mensagem: 'Se o e-mail estiver cadastrado, você receberá um link em breve.' };
+    const resposta = {
+      ok: true,
+      mensagem: 'Se o e-mail estiver cadastrado, você receberá um link em breve.',
+    };
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.ativo) { res.json(resposta); return; }
+    if (!user || !user.ativo) {
+      res.json(resposta);
+      return;
+    }
 
     // JWT stateless: não requer colunas novas no banco.
-    const token = jwt.sign(
-      { sub: user.id, tipo: 'reset_senha' },
-      env.JWT_SECRET,
-      { expiresIn: '1h' },
-    );
+    const token = jwt.sign({ sub: user.id, tipo: 'reset_senha' }, env.JWT_SECRET, {
+      expiresIn: '1h',
+    });
 
     const link = `${env.FRONTEND_URL}/redefinir-senha?token=${encodeURIComponent(token)}`;
     await enviarEmail({
@@ -244,16 +282,20 @@ router.post('/esqueci-senha', async (req, res, next) => {
     }).catch((e) => logger.warn('Falha ao enviar e-mail de reset', e));
 
     res.json(resposta);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/auth/redefinir-senha — valida JWT e aplica nova senha
 router.post('/redefinir-senha', async (req, res, next) => {
   try {
-    const { token, senha } = z.object({
-      token: z.string().min(1),
-      senha: z.string().min(8),
-    }).parse(req.body);
+    const { token, senha } = z
+      .object({
+        token: z.string().min(1),
+        senha: z.string().min(8),
+      })
+      .parse(req.body);
 
     if (!senhaForte(senha)) throw new ValidacaoError('A senha deve ter ao menos 8 caracteres.');
 
@@ -275,16 +317,20 @@ router.post('/redefinir-senha', async (req, res, next) => {
 
     await registrarAuditoria({ userId: user.id, acao: 'RESET_SENHA', ip: req.ip });
     res.json({ ok: true, mensagem: 'Senha redefinida com sucesso. Faça login.' });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 // POST /api/auth/definir-senha — primeiro acesso via link de convite
 router.post('/definir-senha', async (req, res, next) => {
   try {
-    const { conviteToken, senha } = z.object({
-      conviteToken: z.string().uuid(),
-      senha: z.string().min(8),
-    }).parse(req.body);
+    const { conviteToken, senha } = z
+      .object({
+        conviteToken: z.string().uuid(),
+        senha: z.string().min(8),
+      })
+      .parse(req.body);
 
     if (!senhaForte(senha)) throw new ValidacaoError('A senha deve ter ao menos 8 caracteres.');
 
@@ -298,7 +344,9 @@ router.post('/definir-senha', async (req, res, next) => {
       data: { passwordHash: await hashSenha(senha), conviteToken: null, conviteExpiraEm: null },
     });
     res.json({ ok: true, mensagem: 'Senha definida com sucesso. Faça login.' });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 export default router;

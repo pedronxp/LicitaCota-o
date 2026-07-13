@@ -25,7 +25,17 @@ enum StatusPesquisa {
   AGUARDANDO
   PROCESSANDO
   CONCLUIDA
+  RASCUNHO
+  COLETANDO
+  EM_REVISAO
+  APROVADA
+  EMITIDA
   ERRO
+}
+
+enum ModoEntradaPesquisa {
+  MANUAL
+  PLANILHA
 }
 
 enum StatusItem {
@@ -61,8 +71,68 @@ enum TipoNotificacao {
 }
 
 enum StatusCotacaoDireta {
+  RASCUNHO
   ENVIADA
   RESPONDIDA
+  RECUSADA
+  CANCELADA
+  VENCIDA
+}
+
+enum OrigemFornecedor {
+  MANUAL
+  PNCP
+}
+
+enum TipoOrigemEvidencia {
+  FONTE_PUBLICA
+  FORNECEDOR
+  TABELA_REFERENCIA
+  HISTORICO_INTERNO
+  MANUAL
+}
+
+enum StatusEvidencia {
+  PENDENTE
+  VALIDA
+  DESCARTADA
+  INVALIDA
+}
+
+enum StatusSessaoBusca {
+  PENDENTE
+  PROCESSANDO
+  CONCLUIDA
+  ERRO
+}
+
+enum AbrangenciaBuscaPncp {
+  NACIONAL
+  UF
+  MUNICIPIO
+  ORGAO
+}
+
+enum TipoSugestaoMelhoria {
+  SUGESTAO
+  ERRO
+  DIFICULDADE
+  NOVA_FUNCIONALIDADE
+}
+
+enum PrioridadeSugestao {
+  BAIXA
+  MEDIA
+  ALTA
+  CRITICA
+}
+
+enum StatusSugestao {
+  RECEBIDA
+  EM_ANALISE
+  PLANEJADA
+  EM_DESENVOLVIMENTO
+  CONCLUIDA
   RECUSADA
 }
 
@@ -71,33 +141,41 @@ enum StatusCotacaoDireta {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  nome         String
-  cargo        String?
-  setor        String?
-  municipio    String?
-  uf           String?
-  role         Role     @default(OPERADOR)
-  ativo        Boolean  @default(true)
-  passwordHash String?
-  refreshToken String?
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  nome               String
+  cargo              String?
+  setor              String?
+  municipio          String?
+  uf                 String?
+  role               Role      @default(OPERADOR)
+  ativo              Boolean   @default(true)
+  passwordHash       String?
+  refreshToken       String?
   // Token de convite / primeiro acesso (definir senha)
-  conviteToken    String?   @unique
-  conviteExpiraEm DateTime?
+  conviteToken       String?   @unique
+  conviteExpiraEm    DateTime?
   // Campos adicionados via migration (não utilizados pelo fluxo JWT stateless)
   resetSenhaToken    String?   @unique
   resetSenhaExpiraEm DateTime?
-  prefNotifEmail  Boolean   @default(true)
-  prefNotifInApp  Boolean   @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  prefNotifEmail     Boolean   @default(true)
+  prefNotifInApp     Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  pesquisas        Pesquisa[]
-  fontesCriadas    FonteCotacao[]
-  logs             LogAuditoria[]
-  notificacoes     Notificacao[]
-  configsAlteradas ConfiguracaoSistema[]
+  pesquisas           Pesquisa[]            @relation("PesquisaAutor")
+  pesquisasAprovadas  Pesquisa[]            @relation("PesquisaAprovador")
+  evidenciasCriadas   EvidenciaPreco[]      @relation("EvidenciaCriador")
+  evidenciasRevisadas EvidenciaPreco[]      @relation("EvidenciaRevisor")
+  excecoesAprovadas   ItemPesquisa[]        @relation("ItemExcecaoAprovador")
+  documentosEmitidos  DocumentoPesquisa[]   @relation("DocumentoEmissor")
+  sessoesBusca        SessaoBuscaOnline[]   @relation("SessaoBuscaCriador")
+  fontesCriadas       FonteCotacao[]
+  logs                LogAuditoria[]
+  notificacoes        Notificacao[]
+  configsAlteradas    ConfiguracaoSistema[]
+  sugestoesCriadas    SugestaoMelhoria[]    @relation("SugestaoAutor")
+  sugestoesAtribuidas SugestaoMelhoria[]    @relation("SugestaoResponsavel")
 
   @@index([role])
 }
@@ -107,33 +185,58 @@ model User {
 // ---------------------------------------------------------------------------
 
 model Pesquisa {
-  id                  String         @id @default(uuid())
-  titulo              String
-  descricao           String?
-  status              StatusPesquisa @default(AGUARDANDO)
-  userId              String
-  user                User           @relation(fields: [userId], references: [id])
-  totalItens          Int            @default(0)
-  itensComCotacao     Int            @default(0)
-  itensSemCotacao     Int            @default(0)
-  itensComErro        Int            @default(0)
-  resumoCobertura     String?
-  arquivoEntradaUrl   String?
-  arquivoSaidaUrl     String?
-  compartilhada       Boolean        @default(false)
-  linkCompartilhamento String?       @unique @default(uuid())
-  municipio           String?
-  uf                  String?
-  fundamentacaoLegal  String?
-  valorTotalEstimado  Decimal?       @db.Decimal(18, 2)
-  jobId               String?
-  erroProcessamento   String?
-  concluidaEm         DateTime?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  id                    String              @id @default(uuid())
+  titulo                String
+  descricao             String?
+  status                StatusPesquisa      @default(AGUARDANDO)
+  userId                String
+  user                  User                @relation("PesquisaAutor", fields: [userId], references: [id])
+  modoEntrada           ModoEntradaPesquisa @default(PLANILHA)
+  numeroProcesso        String?
+  orgaoSetor            String?
+  secretariaSolicitante String?
+  unidadeAdministrativa String?
+  responsavelPesquisa   String?
+  responsavelRevisao    String?
+  responsavelAprovacao  String?
+  exercicioFinanceiro   Int?
+  modalidade            String?
+  prazoDesejado         DateTime?
+  dotacaoOrcamentaria   String?
+  observacoesGerais     String?
+  dadosProcesso         Json?
+  metodoCalculoSnapshot MetodoCalculo?
+  metaOrigensMinima     Int                 @default(3)
+  limiteOutlierSnapshot Int?
+  fontesSnapshot        Json?
+  aprovadaPorId         String?
+  aprovadaPor           User?               @relation("PesquisaAprovador", fields: [aprovadaPorId], references: [id], onDelete: SetNull)
+  aprovadaEm            DateTime?
+  emitidaEm             DateTime?
+  versaoAtual           Int                 @default(0)
+  totalItens            Int                 @default(0)
+  itensComCotacao       Int                 @default(0)
+  itensSemCotacao       Int                 @default(0)
+  itensComErro          Int                 @default(0)
+  resumoCobertura       String?
+  arquivoEntradaUrl     String?
+  arquivoSaidaUrl       String?
+  compartilhada         Boolean             @default(false)
+  linkCompartilhamento  String?             @unique @default(uuid())
+  municipio             String?
+  uf                    String?
+  fundamentacaoLegal    String?
+  valorTotalEstimado    Decimal?            @db.Decimal(18, 2)
+  jobId                 String?
+  erroProcessamento     String?
+  concluidaEm           DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
 
-  itens         ItemPesquisa[]
-  historicos    HistoricoPreco[]
+  itens        ItemPesquisa[]
+  historicos   HistoricoPreco[]
+  documentos   DocumentoPesquisa[]
+  sessoesBusca SessaoBuscaOnline[]
 
   @@index([userId])
   @@index([status])
@@ -141,31 +244,47 @@ model Pesquisa {
 }
 
 model ItemPesquisa {
-  id                   String     @id @default(uuid())
-  pesquisaId           String
-  pesquisa             Pesquisa   @relation(fields: [pesquisaId], references: [id], onDelete: Cascade)
-  sequencia            Int
-  nome                 String
-  descricao            String
-  descricaoNormalizada String?
-  quantidade           Decimal    @db.Decimal(18, 4)
-  unidadeMedida        String?
-  cidade               String?
-  uf                   String?
-  camposExtras         Json?
-  precoReferencia      Decimal?   @db.Decimal(18, 4)
-  precoTotal           Decimal?   @db.Decimal(18, 2)
-  statusItem           StatusItem @default(PENDENTE)
-  observacao           String?
-  createdAt            DateTime   @default(now())
-  updatedAt            DateTime   @updatedAt
+  id                     String     @id @default(uuid())
+  pesquisaId             String
+  pesquisa               Pesquisa   @relation(fields: [pesquisaId], references: [id], onDelete: Cascade)
+  sequencia              Int
+  nome                   String
+  descricao              String
+  especificacao          String?
+  marcaModelo            String?
+  localEntrega           String?
+  prazoEntregaDias       Int?
+  garantia               String?
+  caracteristicasObrigatorias String?
+  caracteristicasDesejaveis   String?
+  anexos                 Json?
+  descricaoNormalizada   String?
+  quantidade             Decimal    @db.Decimal(18, 4)
+  unidadeMedida          String?
+  cidade                 String?
+  uf                     String?
+  camposExtras           Json?
+  precoReferencia        Decimal?   @db.Decimal(18, 4)
+  precoTotal             Decimal?   @db.Decimal(18, 2)
+  statusItem             StatusItem @default(PENDENTE)
+  observacao             String?
+  resultadoCalculo       Json?
+  justificativaCobertura String?
+  excecaoAprovadaPorId   String?
+  excecaoAprovadaPor     User?      @relation("ItemExcecaoAprovador", fields: [excecaoAprovadaPorId], references: [id], onDelete: SetNull)
+  excecaoAprovadaEm      DateTime?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
 
   cotacoes        Cotacao[]
   cotacoesDiretas CotacaoDireta[]
+  evidencias      EvidenciaPreco[]
+  sessoesBusca    SessaoBuscaOnline[]
 
   @@unique([pesquisaId, sequencia])
   @@index([pesquisaId])
   @@index([statusItem])
+  @@index([excecaoAprovadaPorId])
 }
 
 model Cotacao {
@@ -182,23 +301,115 @@ model Cotacao {
   editadaManualmente  Boolean      @default(false)
   dadosBrutos         Json?
 
+  evidencias EvidenciaPreco[]
+
   @@index([itemPesquisaId])
   @@index([fonte])
 }
 
 model HistoricoPreco {
-  id            String   @id @default(uuid())
-  itemNome      String
-  fonte         String
-  preco         Decimal  @db.Decimal(18, 4)
-  dataReferencia DateTime @default(now())
-  pesquisaId    String?
-  pesquisa      Pesquisa? @relation(fields: [pesquisaId], references: [id], onDelete: SetNull)
-  municipio     String?
-  uf            String?
+  id             String    @id @default(uuid())
+  itemNome       String
+  fonte          String
+  preco          Decimal   @db.Decimal(18, 4)
+  dataReferencia DateTime  @default(now())
+  pesquisaId     String?
+  pesquisa       Pesquisa? @relation(fields: [pesquisaId], references: [id], onDelete: SetNull)
+  municipio      String?
+  uf             String?
 
   @@index([itemNome])
   @@index([dataReferencia])
+}
+
+model EvidenciaPreco {
+  id              String              @id @default(uuid())
+  itemPesquisaId  String
+  item            ItemPesquisa        @relation(fields: [itemPesquisaId], references: [id], onDelete: Cascade)
+  tipoOrigem      TipoOrigemEvidencia
+  origemChave     String
+  independenciaChave String
+  fonte           String?
+  cotacaoId       String?
+  cotacao         Cotacao?            @relation(fields: [cotacaoId], references: [id], onDelete: SetNull)
+  cotacaoDiretaId String?
+  cotacaoDireta   CotacaoDireta?      @relation(fields: [cotacaoDiretaId], references: [id], onDelete: SetNull)
+  chaveDedupe     String?             @unique
+  possivelDuplicidade Boolean         @default(false)
+  orgaoCnpj       String?
+  orgaoNome       String?
+  pncpAno         Int?
+  pncpSequencial  Int?
+  pncpNumeroItem  Int?
+  fornecedorCnpj String?
+  fornecedorNome String?
+  tipoPreco       String?
+  unidadeOriginal String?
+  descricaoOriginal String?
+  preco           Decimal             @db.Decimal(18, 4)
+  dataReferencia  DateTime?
+  dataColeta      DateTime            @default(now())
+  referencia      String?
+  comprovanteUrl  String?
+  dadosBrutos     Json?
+  status          StatusEvidencia     @default(PENDENTE)
+  justificativa   String?
+  criadoPorId     String?
+  criadoPor       User?               @relation("EvidenciaCriador", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  revisadoPorId   String?
+  revisadoPor     User?               @relation("EvidenciaRevisor", fields: [revisadoPorId], references: [id], onDelete: SetNull)
+  revisadoEm      DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([itemPesquisaId, status])
+  @@index([itemPesquisaId, origemChave])
+  @@index([itemPesquisaId, independenciaChave])
+  @@index([cotacaoId])
+  @@index([cotacaoDiretaId])
+}
+
+model DocumentoPesquisa {
+  id             String   @id @default(uuid())
+  pesquisaId     String
+  pesquisa       Pesquisa @relation(fields: [pesquisaId], references: [id], onDelete: Cascade)
+  versao         Int
+  snapshot       Json
+  arquivoXlsxUrl String?
+  arquivoPdfUrl  String?
+  emitidoPorId   String?
+  emitidoPor     User?    @relation("DocumentoEmissor", fields: [emitidoPorId], references: [id], onDelete: SetNull)
+  emitidoEm      DateTime @default(now())
+
+  @@unique([pesquisaId, versao])
+  @@index([pesquisaId, emitidoEm])
+}
+
+model SessaoBuscaOnline {
+  id             String            @id @default(uuid())
+  pesquisaId     String
+  pesquisa       Pesquisa          @relation(fields: [pesquisaId], references: [id], onDelete: Cascade)
+  itemPesquisaId String
+  item           ItemPesquisa      @relation(fields: [itemPesquisaId], references: [id], onDelete: Cascade)
+  termo          String
+  abrangenciaPncp AbrangenciaBuscaPncp @default(NACIONAL)
+  dataInicialPncp DateTime?
+  dataFinalPncp   DateTime?
+  ufPncp          String?
+  municipioPncp   String?
+  orgaoCnpjPncp   String?
+  fontes         Json
+  resultados     Json?
+  erros          Json?
+  status         StatusSessaoBusca @default(PENDENTE)
+  criadoPorId    String?
+  criadoPor      User?             @relation("SessaoBuscaCriador", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  iniciadoEm     DateTime          @default(now())
+  concluidoEm    DateTime?
+
+  @@index([pesquisaId, iniciadoEm])
+  @@index([itemPesquisaId, iniciadoEm])
+  @@index([status])
 }
 
 // ---------------------------------------------------------------------------
@@ -240,15 +451,15 @@ model FonteCotacao {
 
 // Linhas de uma fonte do tipo TABELA_REFERENCIA (importadas por planilha)
 model TabelaReferenciaItem {
-  id             String       @id @default(uuid())
-  fonteId        String
-  fonte          FonteCotacao @relation(fields: [fonteId], references: [id], onDelete: Cascade)
-  descricao      String
-  descricaoNorm  String
-  unidadeMedida  String?
-  preco          Decimal      @db.Decimal(18, 4)
-  referencia     String?
-  createdAt      DateTime     @default(now())
+  id            String       @id @default(uuid())
+  fonteId       String
+  fonte         FonteCotacao @relation(fields: [fonteId], references: [id], onDelete: Cascade)
+  descricao     String
+  descricaoNorm String
+  unidadeMedida String?
+  preco         Decimal      @db.Decimal(18, 4)
+  referencia    String?
+  createdAt     DateTime     @default(now())
 
   @@index([fonteId])
   @@index([descricaoNorm])
@@ -259,21 +470,29 @@ model TabelaReferenciaItem {
 // ---------------------------------------------------------------------------
 
 model ConfiguracaoSistema {
-  id                     String        @id @default("singleton")
-  municipio              String?
-  uf                     String?
-  brasaoUrl              String?
-  responsavelTecnico     String?
-  metodoCalculo          MetodoCalculo @default(MEDIA)
-  limiteOutlierPercentual Int          @default(30)
-  minFontesCompleta      Int           @default(2)
-  itemAmostraTeste       String        @default("caneta esferográfica azul")
-  textosFundamentacao    Json?
-  smtpConfig             Json?
-  canalSuporte           Json?
-  updatedAt              DateTime      @updatedAt
-  updatedById            String?
-  updatedBy              User?         @relation(fields: [updatedById], references: [id])
+  id                      String        @id @default("singleton")
+  nomeOrgao               String?
+  cnpjOrgao               String?
+  municipio               String?
+  uf                      String?
+  brasaoUrl               String?
+  responsavelTecnico      String?
+  metodoCalculo           MetodoCalculo @default(MENOR_PRECO)
+  limiteOutlierPercentual Int           @default(30)
+  minFontesCompleta       Int           @default(3)
+  itemAmostraTeste        String        @default("caneta esferográfica azul")
+  textosFundamentacao     Json?
+  smtpConfig              Json?
+  canalSuporte            Json?
+  secretarias             Json?
+  setores                 Json?
+  textosAjuda             Json?
+  camposConfig            Json?
+  templatesRelatorio      Json?
+  janelaBuscaDias         Int           @default(365)
+  updatedAt               DateTime      @updatedAt
+  updatedById             String?
+  updatedBy               User?         @relation(fields: [updatedById], references: [id])
 }
 
 // ---------------------------------------------------------------------------
@@ -313,16 +532,39 @@ model Notificacao {
 }
 
 model ArtigoAjuda {
-  id              String   @id @default(uuid())
-  categoria       String
-  titulo          String
-  slug            String   @unique
+  id               String   @id @default(uuid())
+  categoria        String
+  titulo           String
+  slug             String   @unique
   conteudoMarkdown String
-  ordem           Int      @default(0)
-  publicado       Boolean  @default(true)
-  updatedAt       DateTime @updatedAt
+  ordem            Int      @default(0)
+  publicado        Boolean  @default(true)
+  updatedAt        DateTime @updatedAt
 
   @@index([categoria])
+}
+
+model SugestaoMelhoria {
+  id            String               @id @default(uuid())
+  tipo          TipoSugestaoMelhoria
+  titulo        String
+  descricao     String
+  tela          String?
+  prioridade    PrioridadeSugestao   @default(MEDIA)
+  status        StatusSugestao       @default(RECEBIDA)
+  anexoUrl      String?
+  autorId       String?
+  autor         User?                @relation("SugestaoAutor", fields: [autorId], references: [id], onDelete: SetNull)
+  responsavelId String?
+  responsavel   User?                @relation("SugestaoResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  comentarioInterno String?
+  historico     Json?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([status, prioridade])
+  @@index([autorId])
+  @@index([responsavelId])
 }
 
 // ---------------------------------------------------------------------------
@@ -330,25 +572,25 @@ model ArtigoAjuda {
 // ---------------------------------------------------------------------------
 
 model DicionarioSinonimo {
-  id        String  @id @default(uuid())
-  termo     String  @unique
+  id        String   @id @default(uuid())
+  termo     String   @unique
   sinonimos Json
   expansoes Json
-  ativo     Boolean @default(true)
+  ativo     Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model ItemCatalogo {
-  id                     String    @id @default(uuid())
-  nomeNormalizado        String    @unique
-  descricaoPadrao        String
-  unidadeMedida          String?
-  vezesUsado             Int       @default(0)
-  ultimoPrecoReferencia  Decimal?  @db.Decimal(18, 4)
-  ultimaDataReferencia   DateTime?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  id                    String    @id @default(uuid())
+  nomeNormalizado       String    @unique
+  descricaoPadrao       String
+  unidadeMedida         String?
+  vezesUsado            Int       @default(0)
+  ultimoPrecoReferencia Decimal?  @db.Decimal(18, 4)
+  ultimaDataReferencia  DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@index([nomeNormalizado])
 }
@@ -358,19 +600,21 @@ model ItemCatalogo {
 // ---------------------------------------------------------------------------
 
 model Fornecedor {
-  id           String   @id @default(uuid())
-  razaoSocial  String
-  nomeFantasia String?
-  cnpj         String   @unique
-  contatoNome  String?
-  email        String?
-  telefone     String?
-  endereco     String?
-  municipio    String?
-  uf           String?
-  ativo        Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String           @id @default(uuid())
+  razaoSocial      String
+  nomeFantasia     String?
+  cnpj             String           @unique
+  contatoNome      String?
+  email            String?
+  telefone         String?
+  endereco         String?
+  municipio        String?
+  uf               String?
+  origem           OrigemFornecedor @default(MANUAL)
+  referenciaOrigem String?
+  ativo            Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   cotacoesDiretas CotacaoDireta[]
 }
@@ -385,11 +629,16 @@ model CotacaoDireta {
   anexoSolicitacaoUrl String?
   anexoRespostaUrl    String?
   dataSolicitacao     DateTime            @default(now())
+  dataEnvio           DateTime?
   dataResposta        DateTime?
+  validadeAte         DateTime?
+  observacao          String?
   justificativa       String
-  status              StatusCotacaoDireta @default(ENVIADA)
+  status              StatusCotacaoDireta @default(RASCUNHO)
   outlier             Boolean             @default(false)
   createdAt           DateTime            @default(now())
+
+  evidencias EvidenciaPreco[]
 
   @@index([itemPesquisaId])
   @@index([fornecedorId])

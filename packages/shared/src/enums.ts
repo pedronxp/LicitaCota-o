@@ -15,9 +15,53 @@ export const StatusPesquisa = {
   AGUARDANDO: 'AGUARDANDO',
   PROCESSANDO: 'PROCESSANDO',
   CONCLUIDA: 'CONCLUIDA',
+  RASCUNHO: 'RASCUNHO',
+  COLETANDO: 'COLETANDO',
+  EM_REVISAO: 'EM_REVISAO',
+  APROVADA: 'APROVADA',
+  EMITIDA: 'EMITIDA',
   ERRO: 'ERRO',
 } as const;
 export type StatusPesquisa = (typeof StatusPesquisa)[keyof typeof StatusPesquisa];
+
+export const ModoEntradaPesquisa = {
+  MANUAL: 'MANUAL',
+  PLANILHA: 'PLANILHA',
+} as const;
+export type ModoEntradaPesquisa = (typeof ModoEntradaPesquisa)[keyof typeof ModoEntradaPesquisa];
+
+export const TipoOrigemEvidencia = {
+  FONTE_PUBLICA: 'FONTE_PUBLICA',
+  FORNECEDOR: 'FORNECEDOR',
+  TABELA_REFERENCIA: 'TABELA_REFERENCIA',
+  HISTORICO_INTERNO: 'HISTORICO_INTERNO',
+  MANUAL: 'MANUAL',
+} as const;
+export type TipoOrigemEvidencia = (typeof TipoOrigemEvidencia)[keyof typeof TipoOrigemEvidencia];
+
+export const StatusEvidencia = {
+  PENDENTE: 'PENDENTE',
+  VALIDA: 'VALIDA',
+  DESCARTADA: 'DESCARTADA',
+  INVALIDA: 'INVALIDA',
+} as const;
+export type StatusEvidencia = (typeof StatusEvidencia)[keyof typeof StatusEvidencia];
+
+export const StatusSessaoBusca = {
+  PENDENTE: 'PENDENTE',
+  PROCESSANDO: 'PROCESSANDO',
+  CONCLUIDA: 'CONCLUIDA',
+  ERRO: 'ERRO',
+} as const;
+export type StatusSessaoBusca = (typeof StatusSessaoBusca)[keyof typeof StatusSessaoBusca];
+
+export const AbrangenciaBuscaPncp = {
+  NACIONAL: 'NACIONAL',
+  UF: 'UF',
+  MUNICIPIO: 'MUNICIPIO',
+  ORGAO: 'ORGAO',
+} as const;
+export type AbrangenciaBuscaPncp = (typeof AbrangenciaBuscaPncp)[keyof typeof AbrangenciaBuscaPncp];
 
 export const StatusItem = {
   PENDENTE: 'PENDENTE',
