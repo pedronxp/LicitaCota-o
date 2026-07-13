@@ -29,6 +29,7 @@ COPY packages/shared/package.json ./packages/shared/
 RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/apps/api/src/prisma/schema.prisma ./apps/api/src/prisma/schema.prisma
 COPY --from=builder /app/apps/api/src/prisma/migrations ./apps/api/src/prisma/migrations
 
